@@ -1,0 +1,223 @@
+/* ── LibraryPage ─────────────────────────────────────────────── */
+
+.library-page {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.library-header {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.library-title {
+  font-size: clamp(24px, 4vw, 32px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.library-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  max-width: 500px;
+  line-height: 1.6;
+}
+
+.library-search-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  margin-top: 4px;
+}
+
+.library-search-icon {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.library-search {
+  padding-left: 40px;
+}
+
+/* ── Grid ────────────────────────────────────────────────────────── */
+.scam-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 16px;
+}
+
+.no-results {
+  grid-column: 1/-1;
+  text-align: center;
+  color: var(--text-muted);
+  padding: 40px;
+  font-size: 14px;
+}
+
+/* ── Scam Card ───────────────────────────────────────────────────── */
+.scam-card {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.scam-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.scam-icon-wrap {
+  font-size: 28px;
+  width: 52px;
+  height: 52px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.scam-card-info { flex: 1; }
+
+.scam-name {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 5px;
+  line-height: 1.3;
+}
+
+.scam-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.scam-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scam-expand-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: var(--accent-light);
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.15s ease;
+}
+
+.scam-expand-btn:hover { color: var(--text-primary); }
+
+.scam-cta-btn {
+  font-size: 12px;
+  padding: 7px 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ── Expanded Content ────────────────────────────────────────────── */
+.scam-expanded {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  overflow: hidden;
+}
+
+.scam-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.scam-column-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-bottom: 10px;
+}
+
+.danger-title { color: var(--danger); }
+.safe-title   { color: var(--safe); }
+
+.scam-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.scam-list-item {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.scam-list-bullet {
+  flex-shrink: 0;
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+.danger-item .scam-list-bullet { color: var(--danger); }
+.safe-item   .scam-list-bullet { color: var(--safe); }
+
+.scam-example {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  border-left: 3px solid var(--verify);
+}
+
+.scam-example-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--verify);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scam-example p {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  font-style: italic;
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .scam-grid { grid-template-columns: 1fr; }
+  .scam-columns { grid-template-columns: 1fr; }
+  .scam-card-actions { flex-direction: column; align-items: flex-start; }
+}
