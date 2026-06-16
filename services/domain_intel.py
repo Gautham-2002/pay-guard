@@ -44,6 +44,7 @@ import re
 import ssl
 import socket
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -55,6 +56,36 @@ logger = logging.getLogger(__name__)
 VT_KEY = os.getenv("VIRUSTOTAL_API_KEY", "")
 GSB_KEY = os.getenv("GOOGLE_SAFE_BROWSING_KEY", "")
 WJ_KEY = os.getenv("WHOISJSON_KEY", "")
+
+# ─── Demo Cache ───────────────────────────────────────────────────────────────
+
+_CACHE_PATH = Path(__file__).parent.parent / "data" / "demo_cache.json"
+_demo_cache: dict | None = None
+
+
+def _use_demo_cache() -> bool:
+    return os.getenv("USE_DEMO_CACHE", "false").lower() == "true"
+
+
+def _load_cache() -> dict:
+    """Load the demo cache from disk (lazy, cached in module-level variable)."""
+    global _demo_cache
+    if _demo_cache is None:
+        try:
+            _demo_cache = json.loads(_CACHE_PATH.read_text()) if _CACHE_PATH.exists() else {}
+        except Exception as exc:
+            logger.warning("Demo cache load error: %s", exc)
+            _demo_cache = {}
+    return _demo_cache
+
+
+def _get_cache(domain: str, key: str) -> dict | None:
+    """Return cached result for domain+key, or None if not found."""
+    if not _use_demo_cache():
+        return None
+    cache = _load_cache()
+    entry = cache.get(domain) or {}
+    return entry.get(key)
 
 # ─── Known PSP Classification ─────────────────────────────────────────────────
 
@@ -91,6 +122,12 @@ async def fetch_virustotal_url(url: str, client: httpx.AsyncClient) -> dict:
     Returns: {malicious, suspicious, harmless, undetected, analysis_id, permalink}
     On error: {error: str}
     """
+    domain = _extract_domain(url)
+    cached = _get_cache(domain, "virustotal_url")
+    if cached is not None:
+        logger.info("[DEMO CACHE] virustotal_url for %s", domain)
+        return cached
+
     if not VT_KEY:
         return {"error": "VIRUSTOTAL_API_KEY not configured"}
 
@@ -148,6 +185,11 @@ async def fetch_virustotal_domain(domain: str, client: httpx.AsyncClient) -> dic
     Returns: {reputation, categories, last_analysis_stats}
     On error: {error: str}
     """
+    cached = _get_cache(domain, "virustotal_domain")
+    if cached is not None:
+        logger.info("[DEMO CACHE] virustotal_domain for %s", domain)
+        return cached
+
     if not VT_KEY:
         return {"error": "VIRUSTOTAL_API_KEY not configured"}
 
@@ -184,6 +226,11 @@ async def fetch_whois(domain: str, client: httpx.AsyncClient) -> dict:
     If date is unknown, age_days is -1.
     On error: {error: str}
     """
+    cached = _get_cache(domain, "whois")
+    if cached is not None:
+        logger.info("[DEMO CACHE] whois for %s", domain)
+        return cached
+
     if not WJ_KEY:
         return {"error": "WHOISJSON_KEY not configured"}
 
@@ -261,6 +308,12 @@ async def fetch_safe_browsing(url: str, client: httpx.AsyncClient) -> dict:
     Returns: {is_dangerous: bool, threat_types: list[str]}
     On error: {error: str}
     """
+    domain = _extract_domain(url)
+    cached = _get_cache(domain, "safe_browsing")
+    if cached is not None:
+        logger.info("[DEMO CACHE] safe_browsing for %s", domain)
+        return cached
+
     if not GSB_KEY:
         return {"error": "GOOGLE_SAFE_BROWSING_KEY not configured"}
 
@@ -308,6 +361,11 @@ async def fetch_ssl_info(domain: str) -> dict:
     Returns: {valid, issuer, expires, age_days, is_self_signed}
     On failure: {valid: false, error: str}
     """
+    cached = _get_cache(domain, "ssl")
+    if cached is not None:
+        logger.info("[DEMO CACHE] ssl for %s", domain)
+        return cached
+
     loop = asyncio.get_event_loop()
 
     def _get_cert():

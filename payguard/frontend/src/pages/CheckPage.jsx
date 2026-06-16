@@ -1,11 +1,11 @@
-import { useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useRef, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import axios from 'axios'
 import {
   Shield, Link2, CreditCard, QrCode,
   Upload, Image as ImageIcon, X,
-  ChevronDown, AlertCircle, Loader2
+  ChevronDown, AlertCircle, Loader2, Zap
 } from 'lucide-react'
 import './CheckPage.css'
 
@@ -26,8 +26,70 @@ const TABS = [
   { id: 'qr',   label: 'QR Code',    icon: QrCode },
 ]
 
+// ── Demo scenarios (5 from the PRD) ──────────────────────────────────────────
+const DEMO_SCENARIOS = [
+  {
+    id: 1,
+    label: '🟢 SAFE — Legitimate Payment Gateway',
+    tab: 'url',
+    paymentUrl: 'https://razorpay.com',
+    amount: '500',
+    product: 'Payment gateway fee',
+    sourceType: 'website',
+    context: 'Paying a fee via the official Razorpay website',
+  },
+  {
+    id: 2,
+    label: '🔴 DANGER — Lookalike Domain Scam',
+    tab: 'url',
+    paymentUrl: 'https://razorpay-secure.co',
+    amount: '5000',
+    product: 'iPhone 15',
+    sourceType: 'whatsapp_unknown',
+    context: 'Someone on WhatsApp is selling an iPhone 15 for ₹5,000 and sent this link',
+  },
+  {
+    id: 3,
+    label: '🔴 DANGER — QR Refund Scam',
+    tab: 'qr',
+    paymentUrl: '',
+    amount: '9999',
+    product: 'Amazon refund',
+    sourceType: 'whatsapp_unknown',
+    context: 'They said scan this QR to get an Amazon refund — QR has pa=scammer123@ybl',
+  },
+  {
+    id: 4,
+    label: '🟡 VERIFY — OLX Buyer (HITL)',
+    tab: 'upi',
+    paymentUrl: '',
+    upiId: 'merchant@ybl',
+    amount: '1200',
+    product: 'Used laptop',
+    sourceType: 'marketplace',
+    context: 'OLX buyer wants to buy my used laptop and sent this UPI ID to receive payment',
+  },
+  {
+    id: 5,
+    label: '🔴 DANGER — Processing Fee Scam',
+    tab: 'url',
+    paymentUrl: 'https://flipkart.com',
+    amount: '15000',
+    product: 'Processing fee',
+    sourceType: 'email',
+    context: 'Email from flipkart-help.com asking to pay ₹15,000 as a processing fee to release my order',
+  },
+]
+
 export default function CheckPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const demoMode = searchParams.get('demo') === 'true'
+  const demoScenarioIdx = Math.min(
+    Math.max(0, parseInt(searchParams.get('scenario') || '1', 10) - 1),
+    DEMO_SCENARIOS.length - 1
+  )
+
   const [activeTab, setActiveTab] = useState('url')
   const [paymentUrl, setPaymentUrl]   = useState('')
   const [upiId, setUpiId]             = useState('')
@@ -40,7 +102,23 @@ export default function CheckPage() {
   const [loading, setLoading]         = useState(false)
   const [error, setError]             = useState(null)
   const [dragOver, setDragOver]       = useState(false)
+  const [selectedDemoScenario, setSelectedDemoScenario] = useState(demoScenarioIdx)
   const fileInputRef = useRef()
+
+  // Pre-fill form when demo mode is active
+  useEffect(() => {
+    if (!demoMode) return
+    const s = DEMO_SCENARIOS[selectedDemoScenario]
+    setActiveTab(s.tab)
+    setPaymentUrl(s.paymentUrl || '')
+    setUpiId(s.upiId || '')
+    setAmount(s.amount || '')
+    setProduct(s.product || '')
+    setSourceType(s.sourceType || 'whatsapp_unknown')
+    setContext(s.context || '')
+    setQrFile(null)
+    setQrPreview(null)
+  }, [demoMode, selectedDemoScenario])
 
   const hasDestination =
     (activeTab === 'url' && paymentUrl.trim()) ||
@@ -92,6 +170,36 @@ export default function CheckPage() {
 
   return (
     <div className="check-page">
+      {/* ── Demo Mode Banner ── */}
+      <AnimatePresence>
+        {demoMode && (
+          <motion.div
+            className="demo-banner"
+            initial={{ y: -60, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -60, opacity: 0 }}
+          >
+            <div className="demo-banner-inner">
+              <span className="demo-badge"><Zap size={14} /> DEMO MODE</span>
+              <span className="demo-banner-text">Form pre-filled · Cached API responses active</span>
+              <div className="demo-scenario-picker">
+                {DEMO_SCENARIOS.map((s, i) => (
+                  <button
+                    key={s.id}
+                    className={`demo-scenario-btn ${i === selectedDemoScenario ? 'active' : ''}`}
+                    onClick={() => setSelectedDemoScenario(i)}
+                    type="button"
+                  >
+                    S{s.id}
+                  </button>
+                ))}
+              </div>
+              <span className="demo-scenario-label">{DEMO_SCENARIOS[selectedDemoScenario].label}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="check-container">
         {/* ── Header ── */}
         <motion.div
