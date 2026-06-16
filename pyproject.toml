@@ -21,6 +21,7 @@ dependencies = [
     "lxml>=5.2.2",
     "Levenshtein>=0.25.1",
     "pillow>=10.3.0",
+    "pyzbar>=0.1.9",
     "python-jose[cryptography]==3.3.0",
     "sse-starlette>=2.1.0",
 ]
