@@ -39,10 +39,25 @@ AIML_MODEL_TEXT = "gpt-4o"
 AIML_MODEL_VISION = "gpt-4o"
 AIML_MODEL_VERDICT = "claude-3-5-sonnet"
 
-aiml = AsyncOpenAI(
-    api_key=os.getenv("AIML_API_KEY", ""),
-    base_url=AIML_BASE_URL,
-)
+# Lazy-initialised client — created on first use to avoid import-time failures
+_aiml_client: AsyncOpenAI | None = None
+
+
+def _get_aiml_client() -> AsyncOpenAI:
+    """Return (or lazily create) the AIML API async client."""
+    global _aiml_client
+    if _aiml_client is None:
+        api_key = os.getenv("AIML_API_KEY", "")
+        if not api_key:
+            logger.warning(
+                "AIML_API_KEY is not set. "
+                "Agent 2/3/4 calls will fail until the key is configured."
+            )
+        _aiml_client = AsyncOpenAI(
+            api_key=api_key or "placeholder",
+            base_url=AIML_BASE_URL,
+        )
+    return _aiml_client
 
 
 # ─── Image Compression ────────────────────────────────────────────────────────
@@ -154,7 +169,7 @@ async def chat_text(
         kwargs["response_format"] = response_format
 
     try:
-        response = await aiml.chat.completions.create(**kwargs)
+        response = await _get_aiml_client().chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
         logger.debug("AIML chat_text (%s): %d chars returned", model, len(content))
         return content
@@ -218,7 +233,7 @@ async def chat_vision(image_bytes: bytes, text_prompt: str, model: str = VISION_
     ]
 
     try:
-        response = await aiml.chat.completions.create(
+        response = await _get_aiml_client().chat.completions.create(
             model=model,
             messages=messages,
             max_tokens=2048,

@@ -1,37 +1,41 @@
 """
 Route: /history
 ===============
-GET /history — User's check history with aggregate "fraud avoided" counter.
+GET /history — Transaction history with full aggregate fraud stats.
 
-Returns all previous checks ordered by most-recent-first, plus a running
-total of the fraud amounts that were detected when DANGER verdicts were raised.
+Returns all previous *completed* checks ordered by most-recent-first, plus:
+  - Aggregate counts by verdict (safe / verify / danger)
+  - Running total of fraud avoided (sum of amounts for DANGER verdicts)
+  - Per-record: amount, product_description, source_type, avoided_fraud_estimate
 
-Implemented in: Phase 5
+Implemented in: Phase 6
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
+from typing import Optional
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
-from data.db import list_recent_transactions
+from api.database import get_history_stats, list_check_records
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Regex to extract numeric value from "₹9,999" style strings
+# Regex to extract numeric value from strings like "₹9,999" or "9999"
 _INR_PATTERN = re.compile(r"[\d,]+")
 
 
-def _parse_inr(value: str | None) -> float:
+def _parse_inr(value: Optional[str]) -> float:
     """Parse an INR string like '₹9,999' into a float. Returns 0.0 on failure."""
     if not value:
         return 0.0
-    match = _INR_PATTERN.search(str(value).replace(",", ""))
+    # Remove commas and leading currency symbol before matching
+    cleaned = str(value).replace(",", "").replace("₹", "").strip()
+    match = _INR_PATTERN.search(cleaned)
     if match:
         try:
             return float(match.group())
@@ -42,28 +46,43 @@ def _parse_inr(value: str | None) -> float:
 
 @router.get(
     "",
-    summary="Get transaction history and avoided fraud total",
-    response_description="List of past checks and aggregate fraud avoided",
+    summary="Get transaction history and fraud avoided statistics",
+    response_description="List of past checks and aggregate fraud stats",
 )
 async def get_history(
-    limit: int = Query(default=50, ge=1, le=200, description="Maximum number of records to return"),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=200,
+        description="Maximum number of records to return",
+    ),
 ) -> JSONResponse:
     """
-    Return the most recent transaction records and a running fraud-avoided total.
+    Return the most recent completed transaction records and aggregate fraud statistics.
 
     Each record includes:
-    - ``txn_id``       : unique transaction ID
-    - ``verdict``      : SAFE | VERIFY | DANGER
-    - ``risk_score``   : 0–100
-    - ``band_room_id`` : Band room reference
-    - ``created_at``   : ISO-8601 timestamp
-    - ``report_url``   : shareable report URL
+    - ``txn_id``                : unique transaction ID
+    - ``verdict``               : SAFE | VERIFY | DANGER
+    - ``risk_score``            : 0–100
+    - ``amount``                : INR amount checked
+    - ``product_description``   : what the user said they were paying for
+    - ``source_type``           : how the payment destination was received
+    - ``band_room_id``          : Band room reference for audit trail
+    - ``avoided_fraud_estimate``: INR estimate of fraud avoided (DANGER only)
+    - ``created_at``            : ISO-8601 timestamp
+    - ``report_url``            : shareable report URL
 
-    The ``fraud_avoided_total`` field sums the payment amounts for all DANGER
-    transactions (approximated from the stored verdict JSON when available).
+    Aggregate stats include:
+    - ``total_checks``          : total number of completed checks
+    - ``safe_count``            : checks with SAFE verdict
+    - ``verify_count``          : checks with VERIFY verdict
+    - ``danger_count``          : checks with DANGER verdict
+    - ``total_fraud_avoided``   : INR string sum of amounts for DANGER verdicts
     """
+    # ── Fetch records and stats concurrently ──────────────────────────────────
     try:
-        rows = await list_recent_transactions(limit=limit)
+        records     = await list_check_records(limit=limit)
+        stats       = await get_history_stats()
     except Exception as exc:
         logger.error("GET /history: DB query failed: %s", exc)
         return JSONResponse(
@@ -71,38 +90,52 @@ async def get_history(
             content={"error": "Failed to retrieve history from database."},
         )
 
-    # Enrich with report URLs; compute fraud-avoided total for DANGER verdicts
+    # ── Compute total fraud avoided from per-record amounts ───────────────────
     total_avoided: float = 0.0
-    records = []
-    for row in rows:
-        txn_id = row["txn_id"]
-        record = {
-            "txn_id": txn_id,
-            "verdict": row["verdict"],
-            "risk_score": row["risk_score"],
-            "band_room_id": row["band_room_id"],
-            "created_at": row["created_at"],
-            "report_url": f"/report/{txn_id}",
-        }
-        records.append(record)
+    history_rows: list[dict] = []
 
-        # Accumulate fraud avoided for DANGER verdicts
-        if row["verdict"] == "DANGER":
-            # We only have the summary row here; the full amount is in result_json.
-            # We pass a rough estimate: we don't re-parse JSON for performance.
-            # The detailed amount is available via GET /report/{txn_id}.
-            total_avoided += 0  # placeholder — actual value in result JSON
+    for record in records:
+        txn_id = record.id
 
-    # Format total
-    fraud_avoided_str = f"₹{total_avoided:,.0f}" if total_avoided > 0 else None
-    danger_count = sum(1 for r in records if r["verdict"] == "DANGER")
+        # Sum avoided fraud for DANGER verdicts using the stored estimate or amount
+        if record.verdict == "DANGER":
+            # Use the LLM-generated avoided_fraud_estimate if available;
+            # fall back to the actual payment amount the user was about to pay.
+            avoided_str = record.avoided_fraud_estimate
+            if avoided_str:
+                total_avoided += _parse_inr(avoided_str)
+            elif record.amount:
+                total_avoided += record.amount
+
+        history_rows.append({
+            "txn_id":                 txn_id,
+            "verdict":                record.verdict,
+            "risk_score":             record.risk_score,
+            "amount":                 record.amount,
+            "product_description":    record.product_description,
+            "source_type":            record.source_type,
+            "band_room_id":           record.band_room_id,
+            "avoided_fraud_estimate": record.avoided_fraud_estimate,
+            "created_at":             record.created_at,
+            "report_url":             f"/api/report/{txn_id}",
+        })
+
+    # ── Format total fraud avoided ────────────────────────────────────────────
+    fraud_avoided_str: Optional[str] = (
+        f"₹{total_avoided:,.0f}" if total_avoided > 0 else None
+    )
 
     return JSONResponse(
         status_code=200,
         content={
-            "total_checks": len(records),
-            "danger_count": danger_count,
-            "fraud_avoided_total": fraud_avoided_str,
-            "transactions": records,
+            # Aggregate stats
+            "total_checks":       stats["total_checks"],
+            "safe_count":         stats["safe_count"],
+            "verify_count":       stats["verify_count"],
+            "danger_count":       stats["danger_count"],
+            "total_fraud_avoided": fraud_avoided_str,
+
+            # Transaction records (most recent first, limited by ?limit)
+            "transactions": history_rows,
         },
     )

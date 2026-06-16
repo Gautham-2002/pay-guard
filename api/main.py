@@ -1,17 +1,25 @@
 """
 PayGuard AI — FastAPI Application Entry Point
 =============================================
-Wires together all route groups, middleware, and startup hooks.
+Wires together all route groups, middleware, database lifecycle, and startup hooks.
 
-Routes
-------
-  POST /check                     — Submit payment destination for analysis
-  GET  /check/{txn_id}/status     — SSE stream for real-time agent progress
-  POST /check/{txn_id}/hitl       — Submit human response to a HITL question
-  GET  /report/{txn_id}           — Shareable read-only verdict report
-  GET  /history                   — User's check history
+Route map (all under /api prefix)
+----------------------------------
+  POST   /api/check                        — Submit payment destination for analysis
+  GET    /api/check/{txn_id}/status        — SSE: pipeline status-change stream
+  GET    /api/check/{txn_id}/stream        — SSE: Band-room agent-update stream
+  POST   /api/check/{txn_id}/respond       — Submit HITL human response (canonical)
+  POST   /api/check/{txn_id}/hitl          — Submit HITL human response (deprecated alias)
+  GET    /api/report/{txn_id}              — Shareable read-only verdict report
+  GET    /api/history                      — User's check history + aggregate stats
 
-Implemented in: Phase 5
+System routes (no prefix)
+--------------------------
+  GET    /health                           — Liveness probe
+  GET    /docs                             — Swagger UI
+  GET    /redoc                            — ReDoc UI
+
+Implemented in: Phase 6
 """
 
 from __future__ import annotations
@@ -27,30 +35,51 @@ from api.routes import check, history, report
 logger = logging.getLogger(__name__)
 
 
+# ─── Logging ──────────────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+
+
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application lifespan hook — runs startup and shutdown logic.
+    FastAPI lifespan context manager.
 
-    Startup:
-    - Initialise SQLite database (creates table if needed).
+    Startup
+    -------
+    - Initialise SQLite via SQLAlchemy async engine (creates ``checks`` table).
+
+    Shutdown
+    --------
+    - Dispose the async engine (closes all DB connections gracefully).
     """
-    # Startup
+    # ── Startup ───────────────────────────────────────────────────────────────
     try:
-        from data.db import init_db
+        from api.database import init_db
         await init_db()
-        logger.info("PayGuard AI: database initialised successfully")
+        logger.info("PayGuard AI: database initialised")
     except Exception as exc:
-        logger.error("PayGuard AI: database init failed: %s", exc)
-        # Non-fatal — in-memory state still works without persistence
+        logger.error("PayGuard AI: database init failed — %s", exc)
+        # Non-fatal: server will still start; individual requests will fail
 
     yield
 
-    # Shutdown (no-op for now)
-    logger.info("PayGuard AI: shutting down")
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    try:
+        from api.database import close_db
+        await close_db()
+        logger.info("PayGuard AI: database engine disposed")
+    except Exception as exc:
+        logger.warning("PayGuard AI: database shutdown warning — %s", exc)
+
+    logger.info("PayGuard AI: shutdown complete")
 
 
 # ─── Application ──────────────────────────────────────────────────────────────
@@ -59,9 +88,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PayGuard AI",
     description=(
-        "Pre-payment fraud intelligence for Indian UPI payments. "
-        "Analyses UPI IDs, URLs, and QR codes before you pay. "
-        "4-agent sequential pipeline coordinated through Band."
+        "Pre-payment fraud intelligence for Indian UPI payments.\n\n"
+        "Analyses UPI IDs, URLs, and QR codes before you pay using a "
+        "4-agent sequential pipeline coordinated through Band rooms.\n\n"
+        "**Agents:**\n"
+        "1. Destination Intelligence (Featherless AI / Llama 3.3 70B)\n"
+        "2. QR Decode & UPI Validator (AIML API / GPT-4o vision)\n"
+        "3. Web Intelligence (Playwright + DDG + Reddit + AIML API)\n"
+        "4. Verdict Synthesis (AIML API / Claude 3.5 Sonnet)\n\n"
+        "**Verdict:** 🟢 SAFE | 🟡 VERIFY | 🔴 DANGER"
     ),
     version="1.0.0",
     docs_url="/docs",
@@ -69,13 +104,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
 # ─── Middleware ───────────────────────────────────────────────────────────────
+
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
+        "http://localhost:5173",    # Vite dev server (default)
+        "http://localhost:3000",    # Create React App / Next.js
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
     ],
@@ -84,17 +121,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
-app.include_router(check.router,   prefix="/check",   tags=["check"])
-app.include_router(report.router,  prefix="/report",  tags=["report"])
-app.include_router(history.router, prefix="/history", tags=["history"])
+
+app.include_router(check.router,   prefix="/api/check",   tags=["check"])
+app.include_router(report.router,  prefix="/api/report",  tags=["report"])
+app.include_router(history.router, prefix="/api/history", tags=["history"])
 
 
-# ─── Health check ─────────────────────────────────────────────────────────────
+# ─── System endpoints ─────────────────────────────────────────────────────────
 
 
-@app.get("/health", tags=["system"])
+@app.get("/health", tags=["system"], summary="Liveness probe")
 async def health_check() -> dict:
     """Liveness probe — confirms the API server is running."""
-    return {"status": "ok", "service": "payguard-ai", "version": "1.0.0"}
+    return {
+        "status":  "ok",
+        "service": "payguard-ai",
+        "version": "1.0.0",
+    }

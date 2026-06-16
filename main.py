@@ -6,6 +6,12 @@ For production use: `uv run uvicorn api.main:app --host 0.0.0.0 --port 8000`
 """
 
 import os
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env before importing any services
+load_dotenv()
+
 import uvicorn
 
 if __name__ == "__main__":

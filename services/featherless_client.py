@@ -38,10 +38,26 @@ FEATHERLESS_BASE_URL = "https://api.featherless.ai/v1"
 PRIMARY_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
 FALLBACK_MODEL = "Qwen/Qwen2.5-72B-Instruct"
 
-featherless = AsyncOpenAI(
-    api_key=os.getenv("FEATHERLESS_API_KEY", ""),
-    base_url=FEATHERLESS_BASE_URL,
-)
+# Lazy-initialised client — created on first use so that missing env vars
+# only surface when an actual API call is made, not at module import time.
+_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    """Return (or lazily create) the Featherless AI async client."""
+    global _client
+    if _client is None:
+        api_key = os.getenv("FEATHERLESS_API_KEY", "")
+        if not api_key:
+            logger.warning(
+                "FEATHERLESS_API_KEY is not set. "
+                "Agent 1 calls will fail until the key is configured."
+            )
+        _client = AsyncOpenAI(
+            api_key=api_key or "placeholder",
+            base_url=FEATHERLESS_BASE_URL,
+        )
+    return _client
 
 
 # ─── Core chat function ───────────────────────────────────────────────────────
@@ -84,7 +100,7 @@ async def chat(
         response_format = {"type": "json_object"}
 
     async def _call(m: str, msgs: list[dict]) -> str:
-        response = await featherless.chat.completions.create(
+        response = await _get_client().chat.completions.create(
             model=m,
             messages=msgs,
             response_format=response_format,

@@ -14,24 +14,22 @@ Execution flow
   Agent 3 — Web Intelligence          (Playwright + DDG + Reddit + AIML)
       ↓ reads Agent 1 + 2; checks for HITL
   [HITL Gate] — pipeline pauses if any agent flagged ambiguity
-      ↓ user responds via /check/{txn_id}/hitl → Band room
+      ↓ user responds via /check/{txn_id}/respond → Band room
   Agent 4 — Verdict Synthesis         (AIML API claude-3-5-sonnet)
       ↓ reads full room + human responses; publishes final verdict
-  Verdict persisted to SQLite
+  Verdict persisted to SQLite via api.database (SQLAlchemy async)
 
 State management
 ----------------
-Pipeline state is kept in an in-memory registry (``_registry`` dict keyed by
-``txn_id``).  Each state entry contains:
-  - ``status``       : current pipeline status string
-  - ``band_room_id`` : Band room UUID (for HITL route to publish responses)
-  - ``hitl_question``: pending question text if status == "hitl_waiting"
-  - ``result``       : final CheckResponse when status == "complete"
-  - ``error``        : error message when status == "error"
+Pipeline state is kept in two places:
+  1. In-memory registry (``_registry`` dict) — for SSE streaming.
+     Keys: status, band_room_id, hitl_question, result, error.
+  2. SQLite via api.database (CheckRecord ORM) — for history/report.
 
-This is sufficient for a hackathon demo.  Production would use Redis.
+The in-memory registry is sufficient for a hackathon demo. Production
+would use Redis for the registry and PostgreSQL for persistence.
 
-Implemented in: Phase 5
+Implemented in: Phase 5 (updated in Phase 6)
 """
 
 from __future__ import annotations
@@ -135,8 +133,8 @@ class PipelineOrchestrator:
         Execute the full pipeline asynchronously.
 
         This coroutine is designed to be launched as a background asyncio.Task.
-        It updates the shared state registry at each phase so that the SSE
-        endpoint can stream real-time progress to the frontend.
+        It updates both the in-memory state registry (for SSE streaming) and
+        the SQLite database (for persistence) at each phase transition.
 
         Parameters
         ----------
@@ -152,6 +150,21 @@ class PipelineOrchestrator:
         logger.info("Pipeline starting | txn_id=%s", txn_id)
         _set_status(txn_id, STATUS_AGENT_1)
 
+        # ── Create initial DB record ───────────────────────────────────────────
+        try:
+            from api.database import create_check_record
+            await create_check_record(
+                txn_id=txn_id,
+                amount=amount,
+                source_type=source_type,
+                payment_url=payment_url,
+                upi_id=upi_id,
+                product_description=product_description,
+                status="running",
+            )
+        except Exception as db_exc:
+            logger.warning("Pipeline: could not create initial DB record (non-fatal): %s", db_exc)
+
         band_client = BandClient()
         band_room: Optional[BandRoom] = None
 
@@ -161,6 +174,17 @@ class PipelineOrchestrator:
             band_room = await band_client.create_room(room_name)
             _set_state(txn_id, band_room_id=band_room.id)
             logger.info("Pipeline: Band room created '%s' (id=%s)", room_name, band_room.id)
+
+            # ── Update DB with Band room ID ────────────────────────────────────
+            try:
+                from api.database import update_check_status
+                await update_check_status(
+                    txn_id=txn_id,
+                    status="agent_1_running",
+                    band_room_id=band_room.id,
+                )
+            except Exception as db_exc:
+                logger.warning("Pipeline: DB status update non-fatal: %s", db_exc)
 
             # ── Agent 1 ────────────────────────────────────────────────────────
             _set_status(txn_id, STATUS_AGENT_1)
@@ -263,19 +287,30 @@ class PipelineOrchestrator:
                 report_url=report_url,
             )
 
-            # ── Persist to DB ──────────────────────────────────────────────────
+            # ── Persist to DB (SQLAlchemy ORM — api/database.py) ─────────────
             try:
-                from data.db import upsert_transaction
-                await upsert_transaction(
+                from api.database import complete_check_record
+                price_intel_dict: dict | None = None
+                if agent3_output.price_intelligence is not None:
+                    price_intel_dict = agent3_output.price_intelligence.model_dump()
+
+                await complete_check_record(
                     txn_id=txn_id,
-                    band_room_id=band_room.id,
                     verdict=agent4_output.verdict.value,
                     risk_score=agent4_output.risk_score,
+                    plain_english_summary=agent4_output.plain_english_summary,
+                    recommended_actions=agent4_output.recommended_actions,
+                    ask_merchant=agent4_output.ask_merchant,
+                    agent1_narrative=agent1_output.agent_narrative,
+                    agent2_narrative=agent2_output.agent_narrative,
+                    agent3_narrative=agent3_output.agent_narrative,
+                    price_intelligence=price_intel_dict,
+                    avoided_fraud_estimate=agent4_output.avoided_fraud_estimate,
                     result_json=result.model_dump_json(),
                 )
-                logger.info("Pipeline: transaction persisted to DB | txn_id=%s", txn_id)
+                logger.info("Pipeline: transaction persisted (ORM) | txn_id=%s", txn_id)
             except Exception as db_exc:
-                # Non-fatal — the in-memory result is still available
+                # Non-fatal — the in-memory result is still available for this session
                 logger.error("Pipeline: DB persist failed (non-fatal): %s", db_exc)
 
             _set_status(txn_id, STATUS_COMPLETE, result=result, hitl_question=None)
@@ -284,6 +319,11 @@ class PipelineOrchestrator:
         except Exception as exc:
             logger.exception("Pipeline error | txn_id=%s: %s", txn_id, exc)
             _set_status(txn_id, STATUS_ERROR, error=str(exc))
+            try:
+                from api.database import mark_check_error
+                await mark_check_error(txn_id, str(exc))
+            except Exception as db_exc:
+                logger.warning("Pipeline: could not mark DB error (non-fatal): %s", db_exc)
         finally:
             await band_client.aclose()
 
