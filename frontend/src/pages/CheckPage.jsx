@@ -16,7 +16,8 @@ const SOURCE_TYPES = [
   { value: 'sms',              label: 'SMS' },
   { value: 'email',            label: 'Email' },
   { value: 'in_person',        label: 'In person' },
-  { value: 'marketplace',      label: 'OLX / marketplace' },
+  { value: 'olx_marketplace',  label: 'OLX / marketplace' },
+  { value: 'social_media',     label: 'Social media (Instagram / Facebook)' },
   { value: 'other',            label: 'Other' },
 ]
 
@@ -66,7 +67,7 @@ const DEMO_SCENARIOS = [
     upiId: 'merchant@ybl',
     amount: '1200',
     product: 'Used laptop',
-    sourceType: 'marketplace',
+    sourceType: 'olx_marketplace',
     context: 'OLX buyer wants to buy my used laptop and sent this UPI ID to receive payment',
   },
   {

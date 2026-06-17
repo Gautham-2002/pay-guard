@@ -122,6 +122,7 @@ class CheckRecord(Base):
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     product_description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     source_type: Mapped[str] = mapped_column(String, nullable=False)
+    additional_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # ── Final verdict (populated after Agent 4) ───────────────────────────────
     verdict: Mapped[Optional[str]] = mapped_column(String, nullable=True)          # SAFE | VERIFY | DANGER
@@ -223,6 +224,7 @@ async def create_check_record(
     payment_url: Optional[str] = None,
     upi_id: Optional[str] = None,
     product_description: Optional[str] = None,
+    additional_context: Optional[str] = None,
     band_room_id: Optional[str] = None,
     status: str = "running",
 ) -> None:
@@ -237,6 +239,7 @@ async def create_check_record(
     payment_url:         URL being checked (optional).
     upi_id:              UPI VPA being checked (optional).
     product_description: What the user claims to be paying for (optional).
+    additional_context:  Free-text notes from the user (optional).
     band_room_id:        Band room UUID (may be None initially).
     status:              Initial pipeline status (default ``"running"``).
     """
@@ -249,6 +252,7 @@ async def create_check_record(
             upi_id=upi_id,
             amount=amount,
             product_description=product_description,
+            additional_context=additional_context,
             source_type=source_type,
             status=status,
         )

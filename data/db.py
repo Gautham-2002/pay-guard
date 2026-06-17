@@ -1,9 +1,15 @@
 """
-PayGuard AI — SQLite Persistence Layer
-=======================================
-Thin async SQLite wrapper for storing transaction verdicts.
+PayGuard AI — SQLite Persistence Layer  [DEPRECATED — Phase 5]
+===============================================================
+⚠️  This module is DEPRECATED as of Phase 6.
+    The canonical persistence layer is now ``api/database.py``, which uses
+    SQLAlchemy 2.x async ORM with a richer schema (full ``checks`` table with
+    agent narratives, price intelligence, status lifecycle, etc.).
 
-Schema (single table):
+    Nothing in the current codebase imports from ``data.db``.
+    This file is kept for reference only and will be removed in a future cleanup.
+
+Original Phase-5 schema (single table):
   transactions:
     txn_id        TEXT PRIMARY KEY
     band_room_id  TEXT NOT NULL
@@ -12,15 +18,9 @@ Schema (single table):
     result_json   TEXT NOT NULL          -- full CheckResponse JSON
     created_at    TEXT NOT NULL          -- ISO-8601 UTC
 
-Database location
------------------
-  Default: data/payguard.db  (relative to project root)
-  Override via: DB_PATH env var
+See api/database.py for the current Phase-6 schema.
 
-This is sufficient for a hackathon demo.  Production would use PostgreSQL
-or a managed database with proper indexing.
-
-Implemented in: Phase 5
+Implemented in: Phase 5 (superseded by Phase 6)
 """
 
 from __future__ import annotations

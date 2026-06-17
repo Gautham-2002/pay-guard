@@ -160,6 +160,7 @@ class PipelineOrchestrator:
                 payment_url=payment_url,
                 upi_id=upi_id,
                 product_description=product_description,
+                additional_context=additional_context,
                 status="running",
             )
         except Exception as db_exc:

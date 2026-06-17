@@ -95,8 +95,40 @@ success "Python in use: $PY_VERSION"
 # Step 3 — Install Playwright Chromium
 # =============================================================================
 echo ""
-echo -e "${BOLD}Step 3 — Installing Playwright Chromium browser${RESET}"
-echo "─────────────────────────────────────────────────"
+echo -e "${BOLD}Step 3 — Installing system libraries${RESET}"
+echo "──────────────────────────────────────"
+
+# libzbar0 is required by pyzbar for local QR code decoding (Agent 2)
+info "Installing libzbar0 (required by pyzbar for QR decoding)..."
+if command -v apt-get &>/dev/null; then
+    if sudo apt-get install -y libzbar0 2>&1 | grep -q "installed"; then
+        success "libzbar0 installed"
+    else
+        # May already be installed — check
+        if dpkg -l libzbar0 2>/dev/null | grep -q '^ii'; then
+            success "libzbar0 already installed"
+        else
+            warn "libzbar0 install may have failed — QR local decode will fall back to AIML API vision"
+        fi
+    fi
+elif command -v brew &>/dev/null; then
+    # macOS
+    if brew list zbar &>/dev/null; then
+        success "zbar already installed (macOS)"
+    else
+        brew install zbar && success "zbar installed via Homebrew" || \
+            warn "brew install zbar failed — QR local decode will fall back to AIML API vision"
+    fi
+else
+    warn "Cannot detect package manager. Install libzbar0 manually if QR local decode fails."
+    warn "  Ubuntu/Debian: sudo apt-get install libzbar0"
+    warn "  macOS:         brew install zbar"
+fi
+
+# Install Playwright Chromium browser
+echo ""
+echo -e "${BOLD}Step 3b — Installing Playwright Chromium browser${RESET}"
+echo "──────────────────────────────────────────────────"
 info "Downloading Chromium (~160 MB, skipped if already cached)..."
 
 if uv run playwright install chromium 2>&1; then
