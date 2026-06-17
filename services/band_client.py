@@ -715,31 +715,32 @@ class BandRoom:
                 exc,
             )
 
-        try:
-            resp = await self._client._http.get(
-                f"/agent/chats/{self._room_id}/events",
-            )
-            resp.raise_for_status()
-            body = resp.json()
-            raw_events = body.get("data", body)
-            if isinstance(raw_events, dict):
-                for key in ("events", "items"):
-                    if isinstance(raw_events.get(key), list):
-                        raw_events = raw_events[key]
-                        break
-            if isinstance(raw_events, list):
-                decoded = [self._decode_context_entry(e) for e in raw_events if isinstance(e, dict)]
-                decoded_messages.extend(m for m in decoded if m is not None)
-        except httpx.HTTPStatusError as exc:
-            logger.warning(
-                "BandRoom.get_messages events endpoint HTTP error %s; continuing",
-                exc.response.status_code,
-            )
-        except httpx.RequestError as exc:
-            logger.warning(
-                "BandRoom.get_messages events endpoint connection error; continuing: %s",
-                exc,
-            )
+        if os.getenv("BAND_FETCH_EVENTS", "").strip().lower() in {"1", "true", "yes"}:
+            try:
+                resp = await self._client._http.get(
+                    f"/agent/chats/{self._room_id}/events",
+                )
+                resp.raise_for_status()
+                body = resp.json()
+                raw_events = body.get("data", body)
+                if isinstance(raw_events, dict):
+                    for key in ("events", "items"):
+                        if isinstance(raw_events.get(key), list):
+                            raw_events = raw_events[key]
+                            break
+                if isinstance(raw_events, list):
+                    decoded = [self._decode_context_entry(e) for e in raw_events if isinstance(e, dict)]
+                    decoded_messages.extend(m for m in decoded if m is not None)
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "BandRoom.get_messages events endpoint HTTP error %s; continuing",
+                    exc.response.status_code,
+                )
+            except httpx.RequestError as exc:
+                logger.warning(
+                    "BandRoom.get_messages events endpoint connection error; continuing: %s",
+                    exc,
+                )
 
         all_raw: list[dict] = []
         page = 1

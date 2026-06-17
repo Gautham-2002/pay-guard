@@ -182,6 +182,9 @@ class PipelineOrchestrator:
             configs = load_remote_agent_configs()
             agent1_config = configs["destination_intelligence"]
             qr_artifact_ref = save_qr_artifact(txn_id, qr_image_bytes)
+            coordinator_profile = await band_client.get_agent_profile()
+            coordinator_handle = str(coordinator_profile.get("handle") or "").strip().lstrip("@")
+
             seed_payload = {
                 "type": "payment_check_request",
                 "txn_id": txn_id,
@@ -193,9 +196,12 @@ class PipelineOrchestrator:
                 "additional_context": additional_context,
                 "qr_image_uploaded": qr_image_bytes is not None,
                 "qr_artifact_ref": qr_artifact_ref,
+                "coordinator_handle": coordinator_handle,
                 "instructions": (
                     "Begin PayGuard analysis. Run your specialist logic, publish structured "
-                    "findings, then hand off to the configured next agent by @mention."
+                    "findings, then hand off to the configured next agent by @mention. "
+                    "Always include the coordinator handle on handoff/final messages so "
+                    "the API can stream progress."
                 ),
             }
             await band_room.publish_routed_message_to_handle(

@@ -46,6 +46,7 @@ _PAYMENT_CONTEXT_KEYS = (
     "additional_context",
     "qr_artifact_ref",
     "qr_image_uploaded",
+    "coordinator_handle",
 )
 
 
@@ -153,6 +154,11 @@ def _json_safe(value: Any) -> Any:
 
 def _payment_context(payload: dict) -> dict:
     return {key: payload.get(key) for key in _PAYMENT_CONTEXT_KEYS if key in payload}
+
+
+def _normalise_handle(value: Any) -> str | None:
+    handle = str(value or "").strip().lstrip("@")
+    return handle or None
 
 
 def _prior_context(payload: dict) -> list[dict]:
@@ -402,7 +408,22 @@ class PayGuardBandAdapter:
         output: dict,
     ) -> None:
         next_handle = resolve_next_handle(self.config, self.all_configs)
+        coordinator_handle = _normalise_handle(payload.get("coordinator_handle"))
         if not next_handle:
+            if coordinator_handle:
+                final_payload = {
+                    **_payment_context(payload),
+                    **output,
+                    "type": "payguard_agent_final",
+                    "txn_id": payload.get("txn_id"),
+                    "from_agent": self.config.key,
+                    "payguard_context": [*_prior_context(payload), output],
+                    "final_output": output,
+                }
+                await tools.send_message(
+                    content=f"@{coordinator_handle} {encode_payguard_payload(final_payload)}",
+                    mentions=[f"@{coordinator_handle}"],
+                )
             self.log.info("Final PayGuard agent completed | txn_id=%s", payload.get("txn_id"))
             return
 
@@ -414,6 +435,7 @@ class PayGuardBandAdapter:
 
         handoff_payload = {
             **_payment_context(payload),
+            **output,
             "type": "payguard_agent_handoff",
             "txn_id": payload.get("txn_id"),
             "from_agent": self.config.key,
@@ -429,9 +451,22 @@ class PayGuardBandAdapter:
         except Exception as exc:
             self.log.debug("Could not add @%s before handoff; trying mention anyway: %s", next_handle, exc)
 
+        mention_handles = [next_handle]
+        if coordinator_handle and coordinator_handle != next_handle:
+            mention_handles.append(coordinator_handle)
+            try:
+                await tools.add_participant(coordinator_handle)
+            except Exception as exc:
+                self.log.debug(
+                    "Could not add coordinator @%s before handoff; trying mention anyway: %s",
+                    coordinator_handle,
+                    exc,
+                )
+
+        mention_prefix = " ".join(f"@{handle}" for handle in mention_handles)
         await tools.send_message(
-            content=f"@{next_handle} {encode_payguard_payload(handoff_payload)}",
-            mentions=[f"@{next_handle}"],
+            content=f"{mention_prefix} {encode_payguard_payload(handoff_payload)}",
+            mentions=[f"@{handle}" for handle in mention_handles],
         )
         self.log.info(
             "Handed off PayGuard txn_id=%s from %s to @%s",

@@ -73,7 +73,8 @@ class FakeClient:
         self._http = FakeHTTP()
 
 
-def test_get_messages_merges_band_events_with_context_messages() -> None:
+def test_get_messages_merges_band_events_with_context_messages(monkeypatch) -> None:
+    monkeypatch.setenv("BAND_FETCH_EVENTS", "true")
     room = BandRoom(room_id="room-1", name="txn-1", client=FakeClient())
 
     messages = asyncio.run(room.get_messages())
