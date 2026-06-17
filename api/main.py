@@ -30,6 +30,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.rate_limiter import RateLimitMiddleware
 from api.routes import check, history, report
 
 logger = logging.getLogger(__name__)
@@ -106,8 +107,15 @@ app = FastAPI(
 
 
 # ─── Middleware ───────────────────────────────────────────────────────────────
+# Middleware is applied in reverse-registration order (last added = outermost).
+# We register CORS last so it wraps RateLimitMiddleware, ensuring 429 responses
+# still carry the correct Access-Control-Allow-Origin header for browser clients.
 
 
+# 1. Rate limiting (innermost — checked first on every POST /api/check)
+app.add_middleware(RateLimitMiddleware)
+
+# 2. CORS (outermost — adds headers to every response including 429s)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

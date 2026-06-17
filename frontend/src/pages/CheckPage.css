@@ -335,6 +335,41 @@
   font-size: 12px;
 }
 
+/* ── Rate-limit error variant ────────────────────────────────────── */
+.rate-limit-error {
+  background: rgba(251, 146, 60, 0.1);
+  border-color: rgba(251, 146, 60, 0.25);
+  color: #fb923c;
+}
+
+.rate-limit-clock {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  animation: spin 4s linear infinite;
+}
+
+.rate-limit-timer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #fb923c;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.countdown-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 13px;
+  animation: pulse-countdown 1s ease-in-out infinite;
+}
+
+@keyframes pulse-countdown {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}
+
 /* ── CTA ─────────────────────────────────────────────────────────── */
 .analyze-btn {
   width: 100%;

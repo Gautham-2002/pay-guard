@@ -5,7 +5,7 @@ import axios from 'axios'
 import {
   Shield, Link2, CreditCard, QrCode,
   Upload, Image as ImageIcon, X,
-  ChevronDown, AlertCircle, Loader2, Zap
+  ChevronDown, AlertCircle, Loader2, Zap, Clock
 } from 'lucide-react'
 import './CheckPage.css'
 
@@ -29,6 +29,16 @@ const TABS = [
 
 function formatSubmitError(err) {
   const data = err.response?.data
+
+  if (err.response?.status === 429 || data?.error === 'rate_limit_exceeded') {
+    return {
+      type: 'rate_limit',
+      title: 'Too many requests',
+      message: data?.message || 'You have sent too many checks. Please wait before trying again.',
+      retryAfter: data?.retry_after_seconds ?? 60,
+    }
+  }
+
   if (data?.error === 'guardrail_rejection') {
     return {
       type: 'guardrail',
@@ -123,6 +133,9 @@ export default function CheckPage() {
   const [error, setError]             = useState(null)
   const [dragOver, setDragOver]       = useState(false)
   const [selectedDemoScenario, setSelectedDemoScenario] = useState(demoScenarioIdx)
+  // Rate-limit countdown: seconds remaining before the user can retry
+  const [rateLimitCountdown, setRateLimitCountdown] = useState(0)
+  const countdownRef = useRef(null)
   const fileInputRef = useRef()
   const submittingRef = useRef(false)
   const idempotencyKeyRef = useRef(
@@ -130,6 +143,30 @@ export default function CheckPage() {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`
   )
+
+  // Tick down the rate-limit countdown every second
+  useEffect(() => {
+    if (rateLimitCountdown <= 0) {
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current)
+        countdownRef.current = null
+      }
+      return
+    }
+    countdownRef.current = setInterval(() => {
+      setRateLimitCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownRef.current)
+          countdownRef.current = null
+          // Clear the rate-limit error once the cooldown expires
+          setError(prev => prev?.type === 'rate_limit' ? null : prev)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(countdownRef.current)
+  }, [rateLimitCountdown])
 
   // Pre-fill form when demo mode is active
   useEffect(() => {
@@ -192,7 +229,11 @@ export default function CheckPage() {
 
       navigate(`/analysis/${res.data.txn_id}`)
     } catch (err) {
-      setError(formatSubmitError(err))
+      const parsed = formatSubmitError(err)
+      setError(parsed)
+      if (parsed.type === 'rate_limit') {
+        setRateLimitCountdown(parsed.retryAfter)
+      }
       submittingRef.current = false
       idempotencyKeyRef.current =
         typeof crypto !== 'undefined' && crypto.randomUUID
@@ -423,10 +464,31 @@ export default function CheckPage() {
             />
           </div>
 
-          {/* Error */}
+          {/* Error / Rate-limit banner */}
           <AnimatePresence>
-            {error && (
+            {error && error.type === 'rate_limit' ? (
               <motion.div
+                key="rate-limit"
+                className="form-error rate-limit-error"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+              >
+                <Clock size={15} className="rate-limit-clock" />
+                <span>
+                  <strong>{error.title}</strong>
+                  <span>{error.message}</span>
+                  {rateLimitCountdown > 0 && (
+                    <em className="rate-limit-timer">
+                      You can try again in{' '}
+                      <span className="countdown-value">{rateLimitCountdown}s</span>
+                    </em>
+                  )}
+                </span>
+              </motion.div>
+            ) : error ? (
+              <motion.div
+                key="error"
                 className="form-error"
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -439,7 +501,7 @@ export default function CheckPage() {
                   {error.code && <em>Code: {error.code}</em>}
                 </span>
               </motion.div>
-            )}
+            ) : null}
           </AnimatePresence>
 
           {/* CTA */}
@@ -447,10 +509,12 @@ export default function CheckPage() {
             id="analyze-btn"
             type="submit"
             className="btn-primary analyze-btn"
-            disabled={!hasDestination || !amount || loading}
+            disabled={!hasDestination || !amount || loading || rateLimitCountdown > 0}
           >
             {loading ? (
               <><Loader2 size={18} className="spin-icon" /> Submitting...</>
+            ) : rateLimitCountdown > 0 ? (
+              <><Clock size={18} /> Retry in {rateLimitCountdown}s</>
             ) : (
               <>🛡️ Analyze Now</>
             )}
