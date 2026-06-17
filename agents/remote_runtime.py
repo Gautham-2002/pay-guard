@@ -21,6 +21,7 @@ from services.band_client import (
     decode_payguard_payload_from_content,
     decode_payguard_payload_from_record,
     encode_payguard_payload,
+    make_json_safe,
 )
 from services.qr_artifacts import load_qr_artifact
 
@@ -225,7 +226,7 @@ class SDKBandRoom:
         messages = await self.get_messages()
         lines = [f"=== Band Room: {self.name} ==="]
         for message in messages:
-            lines.append(json.dumps(message, ensure_ascii=False, indent=2))
+            lines.append(json.dumps(make_json_safe(message), ensure_ascii=False, indent=2))
         return "\n".join(lines)
 
 

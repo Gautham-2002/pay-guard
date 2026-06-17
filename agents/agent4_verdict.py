@@ -56,8 +56,10 @@ logger = logging.getLogger(__name__)
 
 # ─── Model Selection ──────────────────────────────────────────────────────────
 
-# claude-3-5-sonnet is preferred for verdict synthesis (per PRD §4 + §8)
-_VERDICT_MODEL = "claude-3-5-sonnet"
+# Prefer the configured verdict model, but keep a working fallback because
+# AIML model aliases can change and return 404 at runtime.
+_VERDICT_MODEL = aiml_client.AIML_MODEL_VERDICT
+_FALLBACK_VERDICT_MODEL = aiml_client.REASONING_MODEL
 
 
 # ─── Prompt Builder ───────────────────────────────────────────────────────────
@@ -391,15 +393,33 @@ async def run(
         additional_context=additional_context,
     )
 
-    logger.info("Agent 4: calling AIML API (%s) for verdict synthesis...", _VERDICT_MODEL)
     try:
-        raw_response = await aiml_client.chat_text(
-            messages=messages,
-            response_format={"type": "json_object"},
-            model=_VERDICT_MODEL,
-            temperature=0.15,
-            max_tokens=3000,
-        )
+        verdict_models = [_VERDICT_MODEL]
+        if _FALLBACK_VERDICT_MODEL not in verdict_models:
+            verdict_models.append(_FALLBACK_VERDICT_MODEL)
+
+        raw_response: str | None = None
+        last_exc: Exception | None = None
+        for model in verdict_models:
+            try:
+                logger.info("Agent 4: calling AIML API (%s) for verdict synthesis...", model)
+                raw_response = await aiml_client.chat_text(
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    model=model,
+                    temperature=0.15,
+                    max_tokens=3000,
+                )
+                if model != _VERDICT_MODEL:
+                    logger.info("Agent 4: fallback verdict model succeeded (%s)", model)
+                break
+            except Exception as model_exc:
+                last_exc = model_exc
+                logger.warning("Agent 4: AIML model %s failed: %s", model, model_exc)
+
+        if raw_response is None:
+            raise RuntimeError("All verdict models failed") from last_exc
+
         llm_data = _extract_json(raw_response)
     except Exception as exc:
         logger.error("Agent 4: AIML API call failed: %s", exc)

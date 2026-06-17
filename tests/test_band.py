@@ -6,6 +6,9 @@ Real API tests for the Band client wrapper (services/band_client.py).
 Usage:
     python tests/test_band.py
 
+    # or, through pytest, explicitly opting into live Band room creation:
+    RUN_LIVE_BAND_TESTS=1 pytest tests/test_band.py
+
 Each test runs against the live Band API.  Requires BAND_API_KEY in .env.
 
 Tests
@@ -37,6 +40,22 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from services.band_client import BandClient, BandConnectionError, BandTimeoutError  # noqa: E402
+
+try:
+    import pytest
+except ImportError:  # pragma: no cover - direct script mode does not require pytest
+    pytest = None
+
+_RUNNING_UNDER_PYTEST = "pytest" in Path(sys.argv[0]).name
+_LIVE_BAND_TESTS_ENABLED = os.getenv("RUN_LIVE_BAND_TESTS") == "1"
+
+if pytest is not None and _RUNNING_UNDER_PYTEST and not _LIVE_BAND_TESTS_ENABLED:
+    pytestmark = pytest.mark.skip(
+        reason=(
+            "Live Band integration tests create real chat rooms. "
+            "Set RUN_LIVE_BAND_TESTS=1 to run them intentionally."
+        )
+    )
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 

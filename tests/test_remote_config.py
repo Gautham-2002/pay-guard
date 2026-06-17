@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import pytest
 
 from agents.band_config import RemoteAgentConfig, load_remote_agent_configs
 from agents.remote_runtime import (
     PayGuardBandAdapter,
+    SDKBandRoom,
     _load_band_runtime_urls,
     extract_payguard_payload,
 )
@@ -173,6 +175,73 @@ def test_direct_adapter_runs_agent_and_hands_off(monkeypatch):
     assert tools.messages
     assert tools.messages[0]["mentions"] == ["@team/qr"]
     assert "payguard_agent_handoff" in tools.messages[0]["content"]
+
+
+def test_direct_adapter_handoff_serializes_datetime_context(monkeypatch):
+    from agents import remote_runtime
+
+    async def fake_run_local_agent(*, config_key, band_room, payload):
+        await band_room.publish(
+            {
+                "agent": "destination_intelligence",
+                "sequence": 1,
+                "timestamp": datetime(2026, 6, 17, tzinfo=timezone.utc),
+            }
+        )
+        return {"agent": "destination_intelligence", "sequence": 1}
+
+    monkeypatch.setattr(remote_runtime, "_run_local_agent", fake_run_local_agent)
+
+    configs = {
+        "destination_intelligence": _config(
+            "destination_intelligence",
+            "team/destination",
+            next_agent_key="qr_upi_validator",
+        ),
+        "qr_upi_validator": _config("qr_upi_validator", "team/qr"),
+    }
+    runtime = PayGuardBandAdapter(
+        config=configs["destination_intelligence"],
+        all_configs=configs,
+    )
+    tools = FakeTools()
+    tools.context = [
+        {
+            "metadata": {
+                "payguard_payload": {
+                    "agent": "destination_intelligence",
+                    "sequence": 1,
+                    "timestamp": datetime(2026, 6, 17, tzinfo=timezone.utc),
+                }
+            }
+        }
+    ]
+    msg = FakeMessage(content=encode_payguard_payload({"txn_id": "txn-1"}))
+
+    asyncio.run(runtime.on_message(msg=msg, tools=tools, history=[], room_id="room-1"))
+
+    assert tools.messages
+    assert "2026-06-17T00:00:00+00:00" in tools.messages[0]["content"]
+
+
+def test_sdk_band_room_full_context_serializes_datetime_context():
+    tools = FakeTools()
+    tools.context = [
+        {
+            "metadata": {
+                "payguard_payload": {
+                    "agent": "destination_intelligence",
+                    "sequence": 1,
+                    "timestamp": datetime(2026, 6, 17, tzinfo=timezone.utc),
+                }
+            }
+        }
+    ]
+    room = SDKBandRoom(room_id="room-1", tools=tools)
+
+    context = asyncio.run(room.get_full_context())
+
+    assert "2026-06-17T00:00:00+00:00" in context
 
 
 def test_final_adapter_does_not_handoff(monkeypatch):

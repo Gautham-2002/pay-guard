@@ -37,8 +37,9 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import date, datetime, timezone
+from enum import Enum
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 
@@ -56,9 +57,30 @@ _JSON_TAG_OPEN = "<PAYGUARD_JSON>"
 _JSON_TAG_CLOSE = "</PAYGUARD_JSON>"
 
 
+def make_json_safe(value: Any) -> Any:
+    """Convert common SDK/Pydantic values into JSON-serialisable primitives."""
+    if isinstance(value, dict):
+        return {str(k): make_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [make_json_safe(item) for item in value]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Enum):
+        return value.value
+    if hasattr(value, "model_dump"):
+        return make_json_safe(value.model_dump(mode="json"))
+    return value
+
+
 def encode_payguard_payload(payload: dict) -> str:
     """Encode a PayGuard payload into a Band-compatible content string."""
-    json_str = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    json_str = json.dumps(
+        make_json_safe(payload),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return f"{_JSON_TAG_OPEN}{json_str}{_JSON_TAG_CLOSE}"
 
 
@@ -648,9 +670,10 @@ class BandRoom:
         """
         Return all PayGuard messages in this room in chronological order.
 
-        Reads the Band ``/context`` endpoint first so task events written by
-        ``publish()`` are included.  Falls back to ``/messages?status=all`` for
-        older Band API deployments or diagnostics.
+        Reads Band ``/context``, ``/events``, and ``/messages?status=all`` and
+        merges the decoded PayGuard payloads. Some Band deployments expose task
+        events separately from chat messages, so relying on the first non-empty
+        endpoint can leave the orchestrator stuck on the seed message.
 
         Returns
         -------
@@ -661,6 +684,8 @@ class BandRoom:
         ------
         BandConnectionError
         """
+        decoded_messages: list[dict] = []
+
         try:
             resp = await self._client._http.get(
                 f"/agent/chats/{self._room_id}/context",
@@ -678,15 +703,41 @@ class BandRoom:
                 decoded = [self._decode_context_entry(e) for e in context_entries if isinstance(e, dict)]
                 messages = [m for m in decoded if m is not None]
                 if messages:
-                    return messages
+                    decoded_messages.extend(messages)
         except httpx.HTTPStatusError as exc:
             logger.warning(
-                "BandRoom.get_messages context endpoint HTTP error %s; falling back to messages",
+                "BandRoom.get_messages context endpoint HTTP error %s; continuing",
                 exc.response.status_code,
             )
         except httpx.RequestError as exc:
             logger.warning(
-                "BandRoom.get_messages context endpoint connection error; falling back to messages: %s",
+                "BandRoom.get_messages context endpoint connection error; continuing: %s",
+                exc,
+            )
+
+        try:
+            resp = await self._client._http.get(
+                f"/agent/chats/{self._room_id}/events",
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            raw_events = body.get("data", body)
+            if isinstance(raw_events, dict):
+                for key in ("events", "items"):
+                    if isinstance(raw_events.get(key), list):
+                        raw_events = raw_events[key]
+                        break
+            if isinstance(raw_events, list):
+                decoded = [self._decode_context_entry(e) for e in raw_events if isinstance(e, dict)]
+                decoded_messages.extend(m for m in decoded if m is not None)
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "BandRoom.get_messages events endpoint HTTP error %s; continuing",
+                exc.response.status_code,
+            )
+        except httpx.RequestError as exc:
+            logger.warning(
+                "BandRoom.get_messages events endpoint connection error; continuing: %s",
                 exc,
             )
 
@@ -724,7 +775,26 @@ class BandRoom:
 
         # Decode and filter — skip messages without PayGuard JSON
         decoded = [self._decode_message(m) for m in all_raw]
-        return [m for m in decoded if m is not None]
+        decoded_messages.extend(m for m in decoded if m is not None)
+
+        seen: set[str] = set()
+        deduped: list[dict] = []
+        for message in decoded_messages:
+            key = str(
+                message.get("_band_message_id")
+                or (
+                    message.get("agent"),
+                    message.get("sequence"),
+                    message.get("timestamp"),
+                    message.get("type"),
+                )
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(message)
+
+        return sorted(deduped, key=lambda m: str(m.get("_band_inserted_at") or m.get("timestamp") or ""))
 
     async def get_messages_by_agent(self, agent_name: str) -> list[dict]:
         """

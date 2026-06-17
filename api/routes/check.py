@@ -32,7 +32,7 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Body, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
@@ -43,6 +43,10 @@ from services.pipeline import STATUS_COMPLETE, STATUS_ERROR, get_state, orchestr
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# In-memory idempotency for duplicate browser submits/retries. This is enough
+# for the hackathon single-process demo; production should move it to Redis.
+_submission_idempotency: dict[str, dict] = {}
 
 
 # ─── POST /check ──────────────────────────────────────────────────────────────
@@ -56,6 +60,7 @@ router = APIRouter()
 )
 async def submit_check(
     background_tasks: BackgroundTasks,
+    x_idempotency_key: Optional[str] = Header(default=None, alias="X-Idempotency-Key"),
     # ── Payment destination (at least one required) ──────────────────────
     payment_url: Optional[str] = Form(
         default=None,
@@ -99,6 +104,11 @@ async def submit_check(
     ``txn_id`` immediately and should open ``GET /{txn_id}/stream`` for
     real-time progress, or poll ``GET /{txn_id}/status``.
     """
+    idempotency_key = (x_idempotency_key or "").strip()
+    if idempotency_key and idempotency_key in _submission_idempotency:
+        logger.info("POST /check: duplicate submission key=%s; returning existing txn", idempotency_key)
+        return JSONResponse(status_code=202, content=_submission_idempotency[idempotency_key])
+
     # ── Validate: at least one destination ────────────────────────────────────
     if not payment_url and not upi_id and not qr_image:
         raise HTTPException(
@@ -145,17 +155,18 @@ async def submit_check(
         qr_image_bytes=qr_image_bytes,
     )
 
-    return JSONResponse(
-        status_code=202,
-        content={
-            "txn_id": txn_id,
-            "status": "running",
-            "status_url": f"/api/check/{txn_id}/status",
-            "stream_url": f"/api/check/{txn_id}/stream",
-            "respond_url": f"/api/check/{txn_id}/respond",
-            "report_url": f"/api/report/{txn_id}",
-        },
-    )
+    response_content = {
+        "txn_id": txn_id,
+        "status": "running",
+        "status_url": f"/api/check/{txn_id}/status",
+        "stream_url": f"/api/check/{txn_id}/stream",
+        "respond_url": f"/api/check/{txn_id}/respond",
+        "report_url": f"/api/report/{txn_id}",
+    }
+    if idempotency_key:
+        _submission_idempotency[idempotency_key] = response_content
+
+    return JSONResponse(status_code=202, content=response_content)
 
 
 # ─── GET /check/{txn_id}/status (SSE — status-change stream) ──────────────────

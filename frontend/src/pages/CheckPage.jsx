@@ -105,6 +105,12 @@ export default function CheckPage() {
   const [dragOver, setDragOver]       = useState(false)
   const [selectedDemoScenario, setSelectedDemoScenario] = useState(demoScenarioIdx)
   const fileInputRef = useRef()
+  const submittingRef = useRef(false)
+  const idempotencyKeyRef = useRef(
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  )
 
   // Pre-fill form when demo mode is active
   useEffect(() => {
@@ -143,7 +149,8 @@ export default function CheckPage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!hasDestination || !amount || loading) return
+    if (!hasDestination || !amount || loading || submittingRef.current) return
+    submittingRef.current = true
     setError(null)
     setLoading(true)
 
@@ -158,13 +165,21 @@ export default function CheckPage() {
       if (context) fd.append('additional_context', context)
 
       const res = await axios.post('/api/check', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'X-Idempotency-Key': idempotencyKeyRef.current,
+        }
       })
 
       navigate(`/analysis/${res.data.txn_id}`)
     } catch (err) {
       const msg = err.response?.data?.detail || err.message || 'Something went wrong'
       setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+      submittingRef.current = false
+      idempotencyKeyRef.current =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`
       setLoading(false)
     }
   }

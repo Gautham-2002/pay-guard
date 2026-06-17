@@ -48,9 +48,18 @@ const AGENTS = [
   },
 ]
 
-function getAgentStatus(agentId, agentUpdates, currentStatus) {
+const STATUS_SEQUENCE = {
+  agent_1_running: 1,
+  agent_2_running: 2,
+  agent_3_running: 3,
+  agent_4_running: 4,
+}
+
+function getAgentStatus(agent, agentUpdates, currentStatus) {
+  const agentId = agent.id
   const update = agentUpdates[agentId]
   if (update) return 'complete'
+  if (currentStatus === 'complete') return 'complete'
 
   const runningMap = {
     'agent_1_running': 'destination_intelligence',
@@ -61,6 +70,8 @@ function getAgentStatus(agentId, agentUpdates, currentStatus) {
 
   const currentAgent = runningMap[currentStatus]
   if (currentAgent === agentId) return 'running'
+  const currentSeq = STATUS_SEQUENCE[currentStatus] || 0
+  if (currentSeq > agent.seq) return 'complete'
   return 'waiting'
 }
 
@@ -69,7 +80,7 @@ export default function AnalysisPage() {
   const navigate = useNavigate()
 
   const [agentUpdates, setAgentUpdates] = useState({})
-  const [currentStatus, setCurrentStatus] = useState('running')
+  const [currentStatus, setCurrentStatus] = useState('agent_1_running')
   const [bandMessages, setBandMessages]   = useState([])
   const [feedOpen, setFeedOpen]           = useState(false)
   const [hitlQuestion, setHitlQuestion]   = useState(null)
@@ -77,8 +88,15 @@ export default function AnalysisPage() {
   const [hitlLoading, setHitlLoading]     = useState(false)
   const [error, setError]                 = useState(null)
   const eventSourceRef = useRef(null)
+  const navigatedRef = useRef(false)
 
   useEffect(() => {
+    const goToVerdict = () => {
+      if (navigatedRef.current) return
+      navigatedRef.current = true
+      navigate(`/verdict/${txn_id}`)
+    }
+
     let es = new EventSource(`/api/check/${txn_id}/stream`)
     eventSourceRef.current = es
 
@@ -102,10 +120,10 @@ export default function AnalysisPage() {
       es.close()
     })
 
-    es.addEventListener('complete', e => {
-      const data = JSON.parse(e.data)
+    es.addEventListener('complete', () => {
       es.close()
-      navigate(`/verdict/${txn_id}`)
+      setCurrentStatus('complete')
+      goToVerdict()
     })
 
     es.addEventListener('error', e => {
@@ -137,6 +155,15 @@ export default function AnalysisPage() {
         try {
           const data = JSON.parse(e.data)
           setCurrentStatus(data.status || evtType)
+          if ((data.status || evtType) === 'complete') {
+            statusEs.close()
+            es.close()
+            goToVerdict()
+          }
+          if ((data.status || evtType) === 'error') {
+            setError(data.error || 'Analysis failed')
+            statusEs.close()
+          }
         } catch {}
       })
     })
@@ -173,7 +200,11 @@ export default function AnalysisPage() {
 
       es.addEventListener('complete', e => {
         es.close()
-        navigate(`/verdict/${txn_id}`)
+        setCurrentStatus('complete')
+        if (!navigatedRef.current) {
+          navigatedRef.current = true
+          navigate(`/verdict/${txn_id}`)
+        }
       })
 
       es.addEventListener('error', e => {
@@ -214,7 +245,7 @@ export default function AnalysisPage() {
         {/* Agent Timeline */}
         <div className="agent-timeline">
           {AGENTS.map((agent, idx) => {
-            const status = getAgentStatus(agent.id, agentUpdates, currentStatus)
+            const status = getAgentStatus(agent, agentUpdates, currentStatus)
             const update = agentUpdates[agent.id]
             return (
               <motion.div

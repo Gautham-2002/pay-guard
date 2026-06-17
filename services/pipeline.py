@@ -69,6 +69,25 @@ def _set_status(txn_id: str, status: str, **kwargs: object) -> None:
     _set_state(txn_id, status=status, **kwargs)
 
 
+def _coerce_sequence(value: object) -> Optional[int]:
+    """Return an int sequence number from Band payloads that may serialise it."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+async def _persist_status(txn_id: str, status: str, **kwargs: object) -> None:
+    """Best-effort DB status update alongside the in-memory SSE registry."""
+    try:
+        from api.database import update_check_status
+
+        await update_check_status(txn_id=txn_id, status=status, **kwargs)
+    except Exception as db_exc:
+        logger.warning("Pipeline: DB status update non-fatal: %s", db_exc)
+
+
 # ─── Pipeline Orchestrator ────────────────────────────────────────────────────
 
 
@@ -254,6 +273,7 @@ class PipelineOrchestrator:
         }
         deadline = asyncio.get_event_loop().time() + timeout_seconds
         latest_by_agent: dict[str, dict] = {}
+        last_persisted_status: Optional[str] = None
 
         while asyncio.get_event_loop().time() < deadline:
             messages = await band_room.get_messages()
@@ -261,11 +281,23 @@ class PipelineOrchestrator:
                 agent_name = message.get("agent")
                 if agent_name:
                     latest_by_agent[agent_name] = message
-                seq = message.get("sequence")
-                if isinstance(seq, int) and seq in sequence_status:
-                    _set_status(txn_id, sequence_status[seq])
+                seq = _coerce_sequence(message.get("sequence"))
+                if seq in sequence_status:
+                    status = sequence_status[seq]
+                    _set_status(txn_id, status)
+                    if status != last_persisted_status:
+                        await _persist_status(txn_id, status)
+                        last_persisted_status = status
                 if message.get("type") == "needs_clarification":
-                    _set_status(txn_id, STATUS_HITL, hitl_question=message.get("question"))
+                    question = message.get("question")
+                    _set_status(txn_id, STATUS_HITL, hitl_question=question)
+                    if last_persisted_status != STATUS_HITL:
+                        await _persist_status(
+                            txn_id,
+                            STATUS_HITL,
+                            hitl_question=question,
+                        )
+                        last_persisted_status = STATUS_HITL
 
             final_msg = latest_by_agent.get("verdict_synthesis")
             if final_msg:
