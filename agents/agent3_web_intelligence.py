@@ -40,6 +40,7 @@ import httpx
 from api.models import Agent3Output, PriceIntelligence, RiskLevel
 from services.band_client import BandRoom
 from services import aiml_client
+from services.smart_crawler import resolve_url_for_crawl, CrawlTarget
 
 logger = logging.getLogger(__name__)
 
@@ -490,22 +491,55 @@ async def run(
     band_context = await band_room.get_full_context()
     logger.info("Agent 3: read Band context (%d chars)", len(band_context))
 
-    # Extract domain from URL if present
-    domain: str | None = None
+    # ── Step 1b: Smart URL Resolution ─────────────────────────────────────────
+    # Determines whether to crawl the submitted URL directly or resolve it
+    # to a product/store URL (e.g. when the user submits an Instagram profile).
+    crawl_target: CrawlTarget | None = None
+    effective_url: str | None = url
+
     if url:
+        logger.info("Agent 3: running smart URL resolution for %s ...", url)
         try:
-            domain = urlparse(url).netloc or url
+            crawl_target = await resolve_url_for_crawl(url)
+            effective_url = crawl_target.url
+            logger.info(
+                "Agent 3: URL resolved | platform=%s | resolution=%s | effective_url=%s",
+                crawl_target.platform_type,
+                crawl_target.resolution_type,
+                effective_url,
+            )
+            if crawl_target.resolution_type == "product_extracted":
+                logger.info(
+                    "Agent 3: product URL extracted from social page — will crawl %s",
+                    effective_url,
+                )
+            elif crawl_target.resolution_type == "comment_context":
+                logger.info(
+                    "Agent 3: no product URL found — using social page context for synthesis",
+                )
+        except Exception as resolve_exc:
+            logger.error(
+                "Agent 3: smart URL resolution failed (falling back to direct crawl) — %s",
+                resolve_exc,
+            )
+            effective_url = url
+
+    # Extract domain from EFFECTIVE URL (resolved, not original)
+    domain: str | None = None
+    if effective_url:
+        try:
+            domain = urlparse(effective_url).netloc or effective_url
         except Exception:
-            domain = url
+            domain = effective_url
 
     # ── Step 2: Website Crawl (if URL provided) ────────────────────────────────
     crawl_data: dict = {}
     screenshot_bytes: bytes | None = None
     website_crawled = False
 
-    if url:
-        logger.info("Agent 3: crawling website %s ...", url)
-        crawl_data = await crawl_website(url)
+    if effective_url:
+        logger.info("Agent 3: crawling website %s ...", effective_url)
+        crawl_data = await crawl_website(effective_url)
         screenshot_bytes = crawl_data.get("screenshot_bytes")
         if not crawl_data.get("crawl_error"):
             website_crawled = True
@@ -518,9 +552,9 @@ async def run(
 
     # ── Step 2b: Screenshot Analysis ──────────────────────────────────────────
     screenshot_result: dict = {}
-    if screenshot_bytes and url:
+    if screenshot_bytes and effective_url:
         logger.info("Agent 3: analyzing screenshot via AIML vision...")
-        screenshot_result = await analyze_screenshot(screenshot_bytes, url, band_context)
+        screenshot_result = await analyze_screenshot(screenshot_bytes, effective_url, band_context)
         logger.info(
             "Agent 3: screenshot analysis — urgency=%s brand_impersonation=%s",
             screenshot_result.get("urgency_present"),
@@ -569,6 +603,15 @@ async def run(
 
     # ── Step 7: Final Synthesis ────────────────────────────────────────────────
     all_findings = {
+        # URL resolution metadata — helps the synthesis LLM understand the crawl strategy
+        "url_resolution": {
+            "original_url": url,
+            "effective_crawl_url": effective_url,
+            "platform_type": crawl_target.platform_type if crawl_target else "direct",
+            "resolution_type": crawl_target.resolution_type if crawl_target else "direct",
+            "extracted_product_url": crawl_target.extracted_product_url if crawl_target else None,
+            "context_notes": crawl_target.context_notes if crawl_target else "",
+        },
         "crawl_data": {
             k: v for k, v in crawl_data.items()
             if k != "screenshot_bytes"  # bytes not JSON-serialisable
@@ -597,7 +640,14 @@ async def run(
     needs_clarification = False
     clarification_question = None
 
-    if crawl_data.get("crawl_error") and url:
+    # Only trigger HITL for crawl errors on the EFFECTIVE URL (product/resolved URL).
+    # For social platform URLs where we intentionally crawled the original page,
+    # a crawl error is expected and handled via comment_context fallback — no HITL needed.
+    if (
+        crawl_data.get("crawl_error")
+        and effective_url
+        and (crawl_target is None or crawl_target.resolution_type != "comment_context")
+    ):
         needs_clarification = True
         clarification_question = (
             "The website appears to be down or unreachable. "

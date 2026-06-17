@@ -27,6 +27,25 @@ const TABS = [
   { id: 'qr',   label: 'QR Code',    icon: QrCode },
 ]
 
+function formatSubmitError(err) {
+  const data = err.response?.data
+  if (data?.error === 'guardrail_rejection') {
+    return {
+      type: 'guardrail',
+      title: 'This does not look like a payment check',
+      message: data.rejection_reason || 'Please describe the payment destination and transaction context.',
+      code: data.rejection_code,
+    }
+  }
+
+  const msg = data?.detail || err.message || 'Something went wrong'
+  return {
+    type: 'error',
+    title: 'Could not submit check',
+    message: typeof msg === 'string' ? msg : JSON.stringify(msg),
+  }
+}
+
 // ── Demo scenarios (5 from the PRD) ──────────────────────────────────────────
 const DEMO_SCENARIOS = [
   {
@@ -173,8 +192,7 @@ export default function CheckPage() {
 
       navigate(`/analysis/${res.data.txn_id}`)
     } catch (err) {
-      const msg = err.response?.data?.detail || err.message || 'Something went wrong'
-      setError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+      setError(formatSubmitError(err))
       submittingRef.current = false
       idempotencyKeyRef.current =
         typeof crypto !== 'undefined' && crypto.randomUUID
@@ -415,7 +433,11 @@ export default function CheckPage() {
                 exit={{ opacity: 0 }}
               >
                 <AlertCircle size={15} />
-                {error}
+                <span>
+                  <strong>{error.title || 'Could not submit check'}</strong>
+                  {error.message && <span>{error.message}</span>}
+                  {error.code && <em>Code: {error.code}</em>}
+                </span>
               </motion.div>
             )}
           </AnimatePresence>

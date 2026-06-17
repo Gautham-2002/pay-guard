@@ -292,7 +292,7 @@
 /* ── Error ───────────────────────────────────────────────────────── */
 .form-error {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 12px 16px;
   background: var(--danger-bg);
@@ -300,6 +300,39 @@
   border-radius: var(--radius-sm);
   color: var(--danger);
   font-size: 13px;
+}
+
+.form-error > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.form-error > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.form-error strong,
+.form-error span span,
+.form-error em {
+  overflow-wrap: anywhere;
+}
+
+.form-error strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.form-error span span {
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.form-error em {
+  color: var(--text-muted);
+  font-style: normal;
+  font-size: 12px;
 }
 
 /* ── CTA ─────────────────────────────────────────────────────────── */
@@ -440,4 +473,3 @@
     font-size: 11px;
   }
 }
-

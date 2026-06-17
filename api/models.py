@@ -209,6 +209,43 @@ class Agent4Output(BaseModel):
     timestamp: str
 
 
+# ─── Guardrail Models ─────────────────────────────────────────────────────────
+
+
+class GuardrailOutput(BaseModel):
+    """
+    Output of Agent 0 — Input Guardrail.
+
+    Produced synchronously before the Band room is created.
+    When passed=False, the pipeline does not start and the route returns HTTP 400.
+
+    Rejection codes
+    ---------------
+    invalid_url_format      : URL is not a valid HTTP/HTTPS URL
+    invalid_upi_format      : UPI ID missing '@' or has invalid structure
+    amount_out_of_range     : Amount ≤ 0 or implausibly large
+    no_destination          : Neither URL, UPI, nor QR image provided
+    off_topic_request       : LLM determined the destination is not a payment scenario
+    nonsensical_combination : LLM flagged an implausible input combination
+    off_topic_field_content : product_description or additional_context contains content
+                              unrelated to a payment (e.g. code requests, system questions)
+    """
+
+    passed: bool = Field(..., description="True if the request may proceed to the pipeline")
+    rejection_code: Optional[str] = Field(
+        default=None,
+        description=(
+            "Machine-readable rejection reason: invalid_url_format | invalid_upi_format | "
+            "amount_out_of_range | no_destination | off_topic_request | nonsensical_combination"
+        ),
+    )
+    rejection_reason: Optional[str] = Field(
+        default=None,
+        description="User-facing plain English explanation of why the request was rejected",
+    )
+    timestamp: str
+
+
 # ─── HITL Models ──────────────────────────────────────────────────────────────
 
 

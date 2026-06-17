@@ -36,7 +36,8 @@ from fastapi import APIRouter, BackgroundTasks, Body, File, Form, Header, HTTPEx
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
-from api.models import CheckStatus, SourceType, VerdictLevel
+from api.models import CheckStatus, GuardrailOutput, SourceType, VerdictLevel
+from agents import agent0_guardrail
 from services.band_client import BandRoom, BandClient
 from services.hitl_manager import hitl_manager
 from services.pipeline import STATUS_COMPLETE, STATUS_ERROR, get_state, orchestrator
@@ -109,14 +110,35 @@ async def submit_check(
         logger.info("POST /check: duplicate submission key=%s; returning existing txn", idempotency_key)
         return JSONResponse(status_code=202, content=_submission_idempotency[idempotency_key])
 
-    # ── Validate: at least one destination ────────────────────────────────────
-    if not payment_url and not upi_id and not qr_image:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "At least one of 'payment_url', 'upi_id', or 'qr_image' must be provided."
-            ),
+    # ── Agent 0: Guardrail — validate inputs before touching the pipeline ──────
+    # Runs synchronously here (no Band room, no background task).
+    # fast structural checks + one small LLM call to guard semantic coherence.
+    guardrail_result: GuardrailOutput = await agent0_guardrail.run(
+        url=payment_url,
+        upi_id=upi_id,
+        amount=amount,
+        product_description=product_description,
+        source_type=source_type.value if source_type else None,
+        additional_context=additional_context,
+        has_qr_image=qr_image is not None,
+    )
+
+    if not guardrail_result.passed:
+        logger.warning(
+            "POST /check: guardrail rejected request | code=%s | reason=%s",
+            guardrail_result.rejection_code,
+            guardrail_result.rejection_reason,
         )
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "guardrail_rejection",
+                "rejection_code": guardrail_result.rejection_code,
+                "rejection_reason": guardrail_result.rejection_reason,
+            },
+        )
+
+    logger.info("POST /check: guardrail passed — proceeding to pipeline")
 
     # ── Read QR image bytes ────────────────────────────────────────────────────
     qr_image_bytes: Optional[bytes] = None
