@@ -29,7 +29,7 @@ dependencies = [
 
 [project.optional-dependencies]
 remote-agents = [
-    "band-sdk[langgraph]>=0.1.0",
+    "band-sdk>=0.1.0",
 ]
 
 [project.scripts]

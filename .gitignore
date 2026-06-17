@@ -57,6 +57,7 @@ frontend/.env.local
 
 # ─── PayGuard Data Cache ──────────────────────────────────────────────────────
 data/demo_cache.json
+data/artifacts/
 
 # ─── IDE / Editor ─────────────────────────────────────────────────────────────
 .vscode/

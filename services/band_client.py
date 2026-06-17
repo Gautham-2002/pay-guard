@@ -55,6 +55,73 @@ BAND_BASE_URL = "https://app.band.ai/api/v1"
 _JSON_TAG_OPEN = "<PAYGUARD_JSON>"
 _JSON_TAG_CLOSE = "</PAYGUARD_JSON>"
 
+
+def encode_payguard_payload(payload: dict) -> str:
+    """Encode a PayGuard payload into a Band-compatible content string."""
+    json_str = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return f"{_JSON_TAG_OPEN}{json_str}{_JSON_TAG_CLOSE}"
+
+
+def decode_payguard_payload_from_content(content: str) -> Optional[dict]:
+    """Extract a PayGuard JSON payload from Band message/event content."""
+    start = content.find(_JSON_TAG_OPEN)
+    end = content.find(_JSON_TAG_CLOSE)
+    if start == -1 or end == -1 or end < start:
+        return None
+    json_str = content[start + len(_JSON_TAG_OPEN): end]
+    try:
+        decoded = json.loads(json_str)
+    except json.JSONDecodeError as exc:
+        logger.warning("Failed to decode PayGuard JSON from Band content: %s", exc)
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def decode_payguard_payload_from_record(record: dict) -> Optional[dict]:
+    """
+    Extract a PayGuard payload from a Band context/message/event record.
+
+    SDK and REST responses differ slightly, so this accepts direct records and
+    nested ``message`` / ``event`` shapes.
+    """
+    candidate = record
+    for key in ("message", "event"):
+        nested = record.get(key)
+        if isinstance(nested, dict):
+            candidate = nested
+            break
+
+    metadata = candidate.get("metadata")
+    if isinstance(metadata, dict):
+        metadata_payload = metadata.get("payguard_payload")
+        if isinstance(metadata_payload, dict):
+            payload = dict(metadata_payload)
+        else:
+            payload = None
+    else:
+        payload = None
+
+    if payload is None:
+        payload = decode_payguard_payload_from_content(str(candidate.get("content", "")))
+
+    if payload is None:
+        return None
+
+    payload.setdefault("_band_message_id", candidate.get("id") or record.get("id"))
+    payload.setdefault(
+        "_band_inserted_at",
+        candidate.get("inserted_at") or record.get("inserted_at"),
+    )
+    payload.setdefault(
+        "_band_sender_type",
+        candidate.get("sender_type") or record.get("sender_type") or "agent",
+    )
+    payload.setdefault(
+        "_band_record_type",
+        candidate.get("message_type") or record.get("message_type") or record.get("type"),
+    )
+    return payload
+
 # ─── Custom Exceptions ────────────────────────────────────────────────────────
 
 
@@ -109,9 +176,6 @@ class BandClient:
 
     def __init__(self, api_key: Optional[str] = None) -> None:
         self.api_key: str = api_key or os.getenv("BAND_API_KEY", "")
-        print("===============")
-        print(api_key,os.getenv("BAND_API_KEY", ""))
-        print("init", self.api_key)
         if not self.api_key:
             logger.warning(
                 "BandClient: BAND_API_KEY is not set. All API calls will fail."
@@ -168,8 +232,6 @@ class BandClient:
             A room object bound to this client.
         """
         try:
-            print("create room", self.api_key)
-            
             resp = await self._http.post(
                 "/agent/chats",
                 json={"chat": {"title": name}},
@@ -311,21 +373,11 @@ class BandRoom:
         The XML-like tag keeps PayGuard payloads easy to extract from Band
         context entries without depending on the display text around them.
         """
-        json_str = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        return f"{_JSON_TAG_OPEN}{json_str}{_JSON_TAG_CLOSE}"
+        return encode_payguard_payload(payload)
 
     def _decode_payload_from_content(self, content: str) -> Optional[dict]:
         """Extract a PayGuard JSON payload from a Band content string."""
-        start = content.find(_JSON_TAG_OPEN)
-        end = content.find(_JSON_TAG_CLOSE)
-        if start == -1 or end == -1 or end < start:
-            return None
-        json_str = content[start + len(_JSON_TAG_OPEN): end]
-        try:
-            return json.loads(json_str)
-        except json.JSONDecodeError as exc:
-            logger.warning("BandRoom: failed to decode PayGuard JSON from content: %s", exc)
-            return None
+        return decode_payguard_payload_from_content(content)
 
     def _decode_message(self, raw_message: dict) -> Optional[dict]:
         """
@@ -352,40 +404,7 @@ class BandRoom:
         differ a little in shape, so this accepts both direct ``content`` fields
         and nested ``message``/``event`` objects.
         """
-        candidate = entry
-        for key in ("message", "event"):
-            if isinstance(entry.get(key), dict):
-                candidate = entry[key]
-                break
-
-        payload: Optional[dict] = None
-        metadata = candidate.get("metadata")
-        if isinstance(metadata, dict):
-            metadata_payload = metadata.get("payguard_payload")
-            if isinstance(metadata_payload, dict):
-                payload = metadata_payload
-
-        if payload is None:
-            content = str(candidate.get("content", ""))
-            payload = self._decode_payload_from_content(content)
-
-        if payload is None:
-            return None
-
-        payload.setdefault("_band_message_id", candidate.get("id") or entry.get("id"))
-        payload.setdefault(
-            "_band_inserted_at",
-            candidate.get("inserted_at") or entry.get("inserted_at"),
-        )
-        payload.setdefault(
-            "_band_sender_type",
-            candidate.get("sender_type") or entry.get("sender_type") or "agent",
-        )
-        payload.setdefault(
-            "_band_record_type",
-            candidate.get("message_type") or entry.get("message_type") or entry.get("type"),
-        )
-        return payload
+        return decode_payguard_payload_from_record(entry)
 
     async def _get_agent_handle(self) -> str:
         """Return the agent's handle (e.g. ``john_doe/my-agent``) from its profile."""

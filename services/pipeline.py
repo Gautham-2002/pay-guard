@@ -28,6 +28,7 @@ from api.models import CheckResponse, VerdictLevel
 from agents.band_config import load_remote_agent_configs
 from services.band_client import BandClient, BandRoom
 from services.hitl_manager import HITLManager
+from services.qr_artifacts import save_qr_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,7 @@ class PipelineOrchestrator:
             # ── Seed Band-native workflow ─────────────────────────────────────
             configs = load_remote_agent_configs()
             agent1_config = configs["destination_intelligence"]
+            qr_artifact_ref = save_qr_artifact(txn_id, qr_image_bytes)
             seed_payload = {
                 "type": "payment_check_request",
                 "txn_id": txn_id,
@@ -171,8 +173,9 @@ class PipelineOrchestrator:
                 "source_type": source_type,
                 "additional_context": additional_context,
                 "qr_image_uploaded": qr_image_bytes is not None,
+                "qr_artifact_ref": qr_artifact_ref,
                 "instructions": (
-                    "Begin PayGuard analysis. Use your PayGuard tool, publish structured "
+                    "Begin PayGuard analysis. Run your specialist logic, publish structured "
                     "findings, then hand off to the configured next agent by @mention."
                 ),
             }

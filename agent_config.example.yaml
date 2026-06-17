@@ -11,8 +11,8 @@
 #     Web Intelligence / Verdict Synthesis
 #  4. Copy the API key immediately; Band shows it only once.
 #  5. Copy the Agent UUID from each agent settings page.
-#  6. Copy each Band handle exactly as shown in Band. Prompts use these
-#     handles for @mention handoffs, so spelling matters.
+#  6. Copy each Band handle exactly as shown in Band. The no-hop Band runtime
+#     uses these handles for @mention handoffs, so spelling matters.
 # ─────────────────────────────────────────────────────────────
 
 destination_intelligence:

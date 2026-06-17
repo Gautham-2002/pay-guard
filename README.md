@@ -81,11 +81,11 @@ and use that API key for `BAND_API_KEY`. Avoid reusing Agent 1's key if possible
 the app may need to mention Agent 1, and self-mentions can be rejected by Band.
 The four runnable specialist remote-agent keys still live in `agent_config.yaml`.
 
-For adapter-based Band agents, also copy `agent_config.example.yaml` to
+For the four specialist Band agents, also copy `agent_config.example.yaml` to
 `agent_config.yaml`, create one Band Remote Agent for each key in that file,
 and add `FEATHERLESS_API_KEY` / `AIML_API_KEY` to `.env`.
 
-Install the Band remote-agent SDK and LangGraph adapter extra:
+Install the Band remote-agent SDK:
 
 ```bash
 uv sync --extra remote-agents
@@ -93,8 +93,8 @@ uv sync --extra remote-agents
 
 ### 3. Start Band remote agents
 
-Each process connects to Band, waits for @mentions, and runs a LangGraphAdapter
-backed by the same OpenAI-compatible providers used by the pipeline:
+Each process connects to Band, waits for @mentions, runs its local specialist
+logic directly, publishes structured task events, and hands off by @mention:
 
 ```bash
 uv run payguard-agent1
@@ -132,14 +132,14 @@ pay-guard/
 │   ├── agent2_qr_upi.py        # AIML API — QR decode & context validation
 │   ├── agent3_web_intelligence.py  # Playwright + DDG + Reddit synthesis
 │   ├── agent4_verdict.py       # AIML API — final verdict
-│   ├── llm_adapter.py          # Shared Band LangGraphAdapter setup
-│   ├── remote_agent*.py        # Band remote-agent runners
-│   └── remote_tools.py         # Reusable PayGuard tools for Band agents
+│   ├── remote_runtime.py       # No-hop Band SDK runtime and handoff adapter
+│   └── remote_agent*.py        # Band remote-agent runners
 ├── services/                   # API clients & utilities
 │   ├── band_client.py          # Band remote-agent rooms/events/context
 │   ├── featherless_client.py   # Featherless AI wrapper
 │   ├── aiml_client.py          # AIML API wrapper (text + vision)
 │   ├── domain_intel.py         # WHOIS / VirusTotal / GSB / SSL
+│   ├── qr_artifacts.py         # QR image artifact handoff for Band agents
 │   └── qr_handler.py           # QR decode + UPI deep-link parser
 ├── api/                        # FastAPI application (Phase 5)
 │   ├── main.py                 # App factory + CORS + routers
