@@ -10,7 +10,7 @@ Used by:
 
 Configuration
 -------------
-  Base URL : https://api.aimlapi.com/v2
+  Base URL : https://api.aimlapi.com/v1
   Models   : gpt-4o  |  claude-3-5-sonnet
   API key  : AIML_API_KEY env var
 
@@ -26,18 +26,23 @@ import json
 import logging
 import os
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
 # ─── Client Setup ─────────────────────────────────────────────────────────────
 
-AIML_BASE_URL = "https://api.aimlapi.com/v2"
-VISION_MODEL = "gpt-4o"
-REASONING_MODEL = "gpt-4o"
-AIML_MODEL_TEXT = "gpt-4o"
-AIML_MODEL_VISION = "gpt-4o"
-AIML_MODEL_VERDICT = "claude-3-5-sonnet"
+AIML_BASE_URL = os.getenv("AIML_BASE_URL", "https://api.aimlapi.com/v1")
+VISION_MODEL = os.getenv("AIML_VISION_MODEL", "gpt-4o")
+REASONING_MODEL = os.getenv("AIML_REASONING_MODEL", "gpt-4o")
+AIML_MODEL_TEXT = os.getenv("AIML_MODEL", "gpt-4o")
+AIML_MODEL_VISION = os.getenv("AIML_VISION_MODEL", "gpt-4o")
+AIML_MODEL_VERDICT = os.getenv("AIML_VERDICT_MODEL", "claude-3-5-sonnet")
 
 # Lazy-initialised client — created on first use to avoid import-time failures
 _aiml_client: AsyncOpenAI | None = None

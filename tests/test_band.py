@@ -49,6 +49,14 @@ def _record(name: str, passed: bool, detail: str = "") -> None:
     _results.append((name, passed, detail))
 
 
+async def _run_single(test_coro) -> None:
+    before = len(_results)
+    await test_coro()
+    assert len(_results) == before + 1, "Test did not record a result"
+    test_name, passed, detail = _results[-1]
+    assert passed, f"{test_name}: {detail}"
+
+
 def _unique_room_name() -> str:
     ts = int(time.time())
     return f"test-payguard-{ts}"
@@ -57,7 +65,7 @@ def _unique_room_name() -> str:
 # ─── Test 1: Create Room ──────────────────────────────────────────────────────
 
 
-async def test_create_room() -> None:
+async def _test_create_room() -> None:
     """
     Create a room named ``test-payguard-{timestamp}``.
     Assert ``room.id`` is a non-empty string.
@@ -81,7 +89,7 @@ async def test_create_room() -> None:
 # ─── Test 2: Publish & Read ───────────────────────────────────────────────────
 
 
-async def test_publish_and_read() -> None:
+async def _test_publish_and_read() -> None:
     """
     Publish a test message, then call get_messages().
     Assert the message is present in the result.
@@ -118,7 +126,7 @@ async def test_publish_and_read() -> None:
 # ─── Test 3: Wait For Agent ───────────────────────────────────────────────────
 
 
-async def test_wait_for_agent() -> None:
+async def _test_wait_for_agent() -> None:
     """
     Publish a message with agent="domain_intel", then call
     ``wait_for_agent("domain_intel", timeout_seconds=10)``.
@@ -151,7 +159,7 @@ async def test_wait_for_agent() -> None:
 # ─── Test 4: Wait Timeout ────────────────────────────────────────────────────
 
 
-async def test_wait_timeout() -> None:
+async def _test_wait_timeout() -> None:
     """
     Call ``wait_for_agent("nonexistent_agent", timeout_seconds=3)`` on an empty room.
     Assert it returns None within ~3 seconds.
@@ -178,7 +186,7 @@ async def test_wait_timeout() -> None:
 # ─── Test 5: Get Full Context ─────────────────────────────────────────────────
 
 
-async def test_get_full_context() -> None:
+async def _test_get_full_context() -> None:
     """
     Publish 2 messages from different agents.
     Call ``get_full_context()``.
@@ -230,7 +238,7 @@ async def test_get_full_context() -> None:
 # ─── Test 6: Human Response ───────────────────────────────────────────────────
 
 
-async def test_human_response() -> None:
+async def _test_human_response() -> None:
     """
     Publish a human_response message.
     Call ``wait_for_human_response(timeout_seconds=5)``.
@@ -270,12 +278,36 @@ async def test_human_response() -> None:
 
 
 async def _run_all_tests() -> None:
-    await test_create_room()
-    await test_publish_and_read()
-    await test_wait_for_agent()
-    await test_wait_timeout()
-    await test_get_full_context()
-    await test_human_response()
+    await _test_create_room()
+    await _test_publish_and_read()
+    await _test_wait_for_agent()
+    await _test_wait_timeout()
+    await _test_get_full_context()
+    await _test_human_response()
+
+
+def test_create_room() -> None:
+    asyncio.run(_run_single(_test_create_room))
+
+
+def test_publish_and_read() -> None:
+    asyncio.run(_run_single(_test_publish_and_read))
+
+
+def test_wait_for_agent() -> None:
+    asyncio.run(_run_single(_test_wait_for_agent))
+
+
+def test_wait_timeout() -> None:
+    asyncio.run(_run_single(_test_wait_timeout))
+
+
+def test_get_full_context() -> None:
+    asyncio.run(_run_single(_test_get_full_context))
+
+
+def test_human_response() -> None:
+    asyncio.run(_run_single(_test_human_response))
 
 
 def main() -> None:

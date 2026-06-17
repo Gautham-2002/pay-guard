@@ -1,23 +1,8 @@
 """
-Pipeline Orchestrator — Sequential 4-Agent Runner
-==================================================
-Manages the full PayGuard AI agent pipeline for a single transaction.
-
-Execution flow
---------------
-  Band room created (txn-{txn_id})
-      ↓
-  Agent 1 — Destination Intelligence  (Featherless AI)
-      ↓ publishes to Band; checks for HITL
-  Agent 2 — QR Decode & UPI Validator (AIML API vision + reasoning)
-      ↓ reads Agent 1; checks for HITL
-  Agent 3 — Web Intelligence          (Playwright + DDG + Reddit + AIML)
-      ↓ reads Agent 1 + 2; checks for HITL
-  [HITL Gate] — pipeline pauses if any agent flagged ambiguity
-      ↓ user responds via /check/{txn_id}/respond → Band room
-  Agent 4 — Verdict Synthesis         (AIML API claude-3-5-sonnet)
-      ↓ reads full room + human responses; publishes final verdict
-  Verdict persisted to SQLite via api.database (SQLAlchemy async)
+Pipeline Orchestrator — Band-Native Room Seeder
+================================================
+Creates a Band room, seeds the first @mention to Agent 1, and monitors Band
+context for progress/final verdict. Specialist agents run as Band remote agents.
 
 State management
 ----------------
@@ -37,22 +22,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Optional
 
-from api.models import (
-    Agent4Output,
-    CheckResponse,
-    PriceIntelligence,
-    VerdictLevel,
-)
+from api.models import CheckResponse, VerdictLevel
+from agents.band_config import load_remote_agent_configs
 from services.band_client import BandClient, BandRoom
 from services.hitl_manager import HITLManager
-
-import agents.agent1_destination as agent1
-import agents.agent2_qr_upi as agent2
-import agents.agent3_web_intelligence as agent3
-import agents.agent4_verdict as agent4
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +73,7 @@ def _set_status(txn_id: str, status: str, **kwargs: object) -> None:
 
 class PipelineOrchestrator:
     """
-    Runs the full 4-agent sequential pipeline for a single payment check.
+    Starts and observes the Band-native 4-agent workflow for one payment check.
 
     Usage
     -----
@@ -130,11 +105,7 @@ class PipelineOrchestrator:
         qr_image_bytes: Optional[bytes] = None,
     ) -> None:
         """
-        Execute the full pipeline asynchronously.
-
-        This coroutine is designed to be launched as a background asyncio.Task.
-        It updates both the in-memory state registry (for SSE streaming) and
-        the SQLite database (for persistence) at each phase transition.
+        Create a Band room, invite/mention Agent 1, and monitor remote agents.
 
         Parameters
         ----------
@@ -147,7 +118,7 @@ class PipelineOrchestrator:
         additional_context:  Free-text notes from the user (optional).
         qr_image_bytes:      Raw QR image bytes (optional).
         """
-        logger.info("Pipeline starting | txn_id=%s", txn_id)
+        logger.info("Band-native pipeline starting | txn_id=%s", txn_id)
         _set_status(txn_id, STATUS_AGENT_1)
 
         # ── Create initial DB record ───────────────────────────────────────────
@@ -187,126 +158,62 @@ class PipelineOrchestrator:
             except Exception as db_exc:
                 logger.warning("Pipeline: DB status update non-fatal: %s", db_exc)
 
-            # ── Agent 1 ────────────────────────────────────────────────────────
-            _set_status(txn_id, STATUS_AGENT_1)
-            logger.info("Pipeline: running Agent 1...")
-            agent1_output = await agent1.run(
-                band_room=band_room,
-                url=payment_url,
-                upi_id=upi_id,
-                amount=amount,
-                product_description=product_description,
-                source_type=source_type,
-                additional_context=additional_context,
-            )
-            logger.info("Pipeline: Agent 1 complete | risk=%s", agent1_output.risk_level)
-
-            # ── HITL check after Agent 1 ───────────────────────────────────────
-            if agent1_output.needs_clarification:
-                await self._handle_hitl_pause(txn_id, band_room)
-
-            # ── Agent 2 ────────────────────────────────────────────────────────
-            _set_status(txn_id, STATUS_AGENT_2)
-            logger.info("Pipeline: running Agent 2...")
-            agent2_output = await agent2.run(
-                band_room=band_room,
-                qr_image_bytes=qr_image_bytes,
-                upi_id=upi_id,
-                url=payment_url,
-                amount=amount,
-                product_description=product_description,
-                source_type=source_type,
-                additional_context=additional_context,
+            # ── Seed Band-native workflow ─────────────────────────────────────
+            configs = load_remote_agent_configs()
+            agent1_config = configs["destination_intelligence"]
+            seed_payload = {
+                "type": "payment_check_request",
+                "txn_id": txn_id,
+                "payment_url": payment_url,
+                "upi_id": upi_id,
+                "amount": amount,
+                "product_description": product_description,
+                "source_type": source_type,
+                "additional_context": additional_context,
+                "qr_image_uploaded": qr_image_bytes is not None,
+                "instructions": (
+                    "Begin PayGuard analysis. Use your PayGuard tool, publish structured "
+                    "findings, then hand off to the configured next agent by @mention."
+                ),
+            }
+            await band_room.publish_routed_message_to_handle(
+                seed_payload,
+                participant_handle=agent1_config.handle,
             )
             logger.info(
-                "Pipeline: Agent 2 complete | refund_scam=%s | mismatch=%s",
-                agent2_output.refund_scam_indicator,
-                agent2_output.upi_context_mismatch,
+                "Pipeline: seeded Band room '%s' by mentioning @%s",
+                band_room.name,
+                agent1_config.handle,
             )
 
-            # ── HITL check after Agent 2 ───────────────────────────────────────
-            if agent2_output.needs_clarification:
-                await self._handle_hitl_pause(txn_id, band_room)
-
-            # ── Agent 3 ────────────────────────────────────────────────────────
-            _set_status(txn_id, STATUS_AGENT_3)
-            logger.info("Pipeline: running Agent 3...")
-            agent3_output = await agent3.run(
-                band_room=band_room,
-                url=payment_url,
-                upi_id=upi_id or agent1_output.upi_id,
-                amount=amount,
-                product_description=product_description,
-                source_type=source_type,
-                additional_context=additional_context,
-            )
-            logger.info(
-                "Pipeline: Agent 3 complete | web_risk=%s | complaints=%s",
-                agent3_output.web_risk_level,
-                agent3_output.fraud_complaints_found,
-            )
-
-            # ── HITL check after Agent 3 ───────────────────────────────────────
-            if agent3_output.needs_clarification:
-                await self._handle_hitl_pause(txn_id, band_room)
-
-            # ── Agent 4 ────────────────────────────────────────────────────────
-            _set_status(txn_id, STATUS_AGENT_4)
-            logger.info("Pipeline: running Agent 4...")
-            agent4_output = await agent4.run(
-                band_room=band_room,
-                url=payment_url,
-                upi_id=upi_id,
-                amount=amount,
-                product_description=product_description,
-                source_type=source_type,
-                additional_context=additional_context,
-            )
-            logger.info(
-                "Pipeline: Agent 4 complete | verdict=%s | risk_score=%d",
-                agent4_output.verdict,
-                agent4_output.risk_score,
-            )
-
-            # ── Build CheckResponse ────────────────────────────────────────────
-            report_url = f"/report/{txn_id}"
-            result = CheckResponse(
+            result = await self._monitor_band_room(
                 txn_id=txn_id,
-                band_room_id=band_room.id,
-                verdict=agent4_output.verdict,
-                risk_score=agent4_output.risk_score,
-                plain_english_summary=agent4_output.plain_english_summary,
-                recommended_actions=agent4_output.recommended_actions,
-                ask_merchant=agent4_output.ask_merchant,
-                agent_narratives={
-                    "destination_intelligence": agent1_output.agent_narrative,
-                    "qr_upi_validator": agent2_output.agent_narrative,
-                    "web_intelligence": agent3_output.agent_narrative,
-                    "verdict_synthesis": agent4_output.plain_english_summary,
-                },
-                price_intelligence=agent3_output.price_intelligence,
-                report_url=report_url,
+                band_room=band_room,
+                amount=amount,
             )
 
             # ── Persist to DB (SQLAlchemy ORM — api/database.py) ─────────────
             try:
                 from api.database import complete_check_record
                 price_intel_dict: dict | None = None
-                if agent3_output.price_intelligence is not None:
-                    price_intel_dict = agent3_output.price_intelligence.model_dump()
+                if result.price_intelligence is not None:
+                    if hasattr(result.price_intelligence, "model_dump"):
+                        price_intel_dict = result.price_intelligence.model_dump()
+                    elif isinstance(result.price_intelligence, dict):
+                        price_intel_dict = result.price_intelligence
 
                 await complete_check_record(
                     txn_id=txn_id,
-                    verdict=agent4_output.verdict.value,
-                    risk_score=agent4_output.risk_score,
-                    plain_english_summary=agent4_output.plain_english_summary,
-                    recommended_actions=agent4_output.recommended_actions,
-                    ask_merchant=agent4_output.ask_merchant,
-                    agent1_narrative=agent1_output.agent_narrative,
-                    agent2_narrative=agent2_output.agent_narrative,
-                    agent3_narrative=agent3_output.agent_narrative,
+                    verdict=result.verdict.value,
+                    risk_score=result.risk_score,
+                    plain_english_summary=result.plain_english_summary,
+                    recommended_actions=result.recommended_actions,
+                    ask_merchant=result.ask_merchant,
+                    agent1_narrative=result.agent_narratives.get("destination_intelligence", ""),
+                    agent2_narrative=result.agent_narratives.get("qr_upi_validator", ""),
+                    agent3_narrative=result.agent_narratives.get("web_intelligence", ""),
                     price_intelligence=price_intel_dict,
-                    avoided_fraud_estimate=agent4_output.avoided_fraud_estimate,
+                    avoided_fraud_estimate=None,
                     result_json=result.model_dump_json(),
                 )
                 logger.info("Pipeline: transaction persisted (ORM) | txn_id=%s", txn_id)
@@ -315,7 +222,7 @@ class PipelineOrchestrator:
                 logger.error("Pipeline: DB persist failed (non-fatal): %s", db_exc)
 
             _set_status(txn_id, STATUS_COMPLETE, result=result, hitl_question=None)
-            logger.info("Pipeline complete | txn_id=%s | verdict=%s", txn_id, agent4_output.verdict)
+            logger.info("Band-native pipeline complete | txn_id=%s | verdict=%s", txn_id, result.verdict)
 
         except Exception as exc:
             logger.exception("Pipeline error | txn_id=%s: %s", txn_id, exc)
@@ -327,6 +234,84 @@ class PipelineOrchestrator:
                 logger.warning("Pipeline: could not mark DB error (non-fatal): %s", db_exc)
         finally:
             await band_client.aclose()
+
+    async def _monitor_band_room(
+        self,
+        txn_id: str,
+        band_room: BandRoom,
+        amount: float,
+        timeout_seconds: int = 600,
+    ) -> CheckResponse:
+        """Watch Band context for remote-agent progress and final verdict."""
+        sequence_status = {
+            1: STATUS_AGENT_1,
+            2: STATUS_AGENT_2,
+            3: STATUS_AGENT_3,
+            4: STATUS_AGENT_4,
+        }
+        deadline = asyncio.get_event_loop().time() + timeout_seconds
+        latest_by_agent: dict[str, dict] = {}
+
+        while asyncio.get_event_loop().time() < deadline:
+            messages = await band_room.get_messages()
+            for message in messages:
+                agent_name = message.get("agent")
+                if agent_name:
+                    latest_by_agent[agent_name] = message
+                seq = message.get("sequence")
+                if isinstance(seq, int) and seq in sequence_status:
+                    _set_status(txn_id, sequence_status[seq])
+                if message.get("type") == "needs_clarification":
+                    _set_status(txn_id, STATUS_HITL, hitl_question=message.get("question"))
+
+            final_msg = latest_by_agent.get("verdict_synthesis")
+            if final_msg:
+                verdict_value = str(final_msg.get("verdict", "VERIFY")).upper()
+                try:
+                    verdict = VerdictLevel(verdict_value)
+                except ValueError:
+                    verdict = VerdictLevel.VERIFY
+
+                try:
+                    risk_score = int(final_msg.get("risk_score", 50))
+                except (TypeError, ValueError):
+                    risk_score = 50
+
+                return CheckResponse(
+                    txn_id=txn_id,
+                    band_room_id=band_room.id,
+                    verdict=verdict,
+                    risk_score=max(0, min(100, risk_score)),
+                    plain_english_summary=(
+                        final_msg.get("plain_english_summary")
+                        or final_msg.get("agent_narrative")
+                        or "PayGuard completed Band-native analysis."
+                    ),
+                    recommended_actions=final_msg.get("recommended_actions", []),
+                    ask_merchant=final_msg.get("ask_merchant", []),
+                    agent_narratives={
+                        "destination_intelligence": latest_by_agent.get(
+                            "destination_intelligence", {}
+                        ).get("agent_narrative", ""),
+                        "qr_upi_validator": latest_by_agent.get(
+                            "qr_upi_validator", {}
+                        ).get("agent_narrative", ""),
+                        "web_intelligence": latest_by_agent.get(
+                            "web_intelligence", {}
+                        ).get("agent_narrative", ""),
+                        "verdict_synthesis": final_msg.get("plain_english_summary", ""),
+                    },
+                    price_intelligence=latest_by_agent.get("web_intelligence", {}).get(
+                        "price_intelligence"
+                    ),
+                    report_url=f"/report/{txn_id}",
+                )
+
+            await asyncio.sleep(1.0)
+
+        raise TimeoutError(
+            f"Band-native pipeline timed out after {timeout_seconds}s waiting for Agent 4."
+        )
 
     async def _handle_hitl_pause(self, txn_id: str, band_room: BandRoom) -> None:
         """

@@ -9,7 +9,7 @@ dependencies = [
     "uvicorn[standard]==0.30.0",
     "httpx==0.27.0",
     "openai>=1.35.0",
-    "python-dotenv==1.0.0",
+    "python-dotenv>=1.2.2",
     "python-multipart==0.0.9",
     "sqlalchemy>=2.0.1",
     "aiosqlite>=0.20.0",
@@ -24,7 +24,19 @@ dependencies = [
     "pyzbar>=0.1.9",
     "python-jose[cryptography]==3.3.0",
     "sse-starlette>=2.1.0",
+    "qrcode[pil]>=8.2",
 ]
+
+[project.optional-dependencies]
+remote-agents = [
+    "band-sdk[langgraph]>=0.1.0",
+]
+
+[project.scripts]
+payguard-agent1 = "agents.remote_agent1_destination:cli"
+payguard-agent2 = "agents.remote_agent2_qr_upi:cli"
+payguard-agent3 = "agents.remote_agent3_web_intelligence:cli"
+payguard-agent4 = "agents.remote_agent4_verdict:cli"
 
 [build-system]
 requires = ["hatchling"]

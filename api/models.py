@@ -173,7 +173,7 @@ class Agent3Output(BaseModel):
     complaint_sources: List[str] = []
     official_alternative_found: bool = False
     official_site: Optional[str] = None
-    reddit_mentions: List[str] = []
+    # reddit_mentions: List[str] = []
     price_intelligence: Optional[PriceIntelligence] = None
     web_risk_level: RiskLevel
     agent_narrative: str

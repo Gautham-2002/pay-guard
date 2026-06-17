@@ -1,7 +1,9 @@
 # Phase 2 — Agent 1: Destination Intelligence (Featherless AI)
 
 ## Context
+
 You are building **PayGuard AI**. Phases 0 and 1 are complete:
+
 - Project structure exists at `/home/gautham/Documents/personal-projects/band-hackathon/payguard/`
 - `services/band_client.py` is complete and tested
 - All Pydantic models are in `api/models.py`
@@ -9,6 +11,7 @@ You are building **PayGuard AI**. Phases 0 and 1 are complete:
 The full PRD is at: `/home/gautham/Documents/personal-projects/band-hackathon/PayGuard_AI_PRD_v3.md`
 
 **Agent 1** is the first agent in the sequential pipeline. It:
+
 1. Collects raw signals about the payment destination (URL or UPI ID) from external APIs
 2. Sends ALL raw data to **Featherless AI** (Llama 3.3 70B) as context
 3. The LLM reasons holistically and returns a structured risk assessment
@@ -80,8 +83,8 @@ async def analyze_upi_vpa(upi_id: str) -> dict:
         raw_vpa: str
     }
     Known PSPs: okaxis, oksbi, okhdfcbank, okicici, paytm, ybl, apl, ibl,
-                upi, axl, sbi, cnrb, barodampay, jupiteraxis, fbl, rbl, 
-                timecosmos, ikwik, pingpay, myyes, yesbank, aubank, 
+                upi, axl, sbi, cnrb, barodampay, jupiteraxis, fbl, rbl,
+                timecosmos, ikwik, pingpay, myyes, yesbank, aubank,
                 kotak, hsbc, citibank, dbs, postbank
     """
 
@@ -139,7 +142,7 @@ async def run(
 ) -> Agent1Output:
     """
     Agent 1 — Destination Intelligence.
-    
+
     Flow:
     1. Collect raw signals via services/domain_intel.py
     2. Build a detailed LLM prompt with all raw evidence as context
@@ -153,12 +156,14 @@ async def run(
 ### The Featherless LLM Prompt (build this carefully)
 
 The prompt must provide:
+
 - All raw evidence as structured context
 - Clear instructions on what to reason about
 - The output JSON schema
 - Explicit instruction: "Do not apply rules or thresholds. Reason about why this specific combination of signals is or is not suspicious."
 
 Template structure:
+
 ```
 You are Agent 1 in PayGuard AI, a pre-payment fraud detection system used in India.
 Your role: analyze the payment destination and produce a risk assessment.
@@ -240,6 +245,7 @@ TEST_CASES = [
 ```
 
 For each test:
+
 1. Create a Band room
 2. Run agent1.run() with the test inputs
 3. Assert `risk_level` is not None

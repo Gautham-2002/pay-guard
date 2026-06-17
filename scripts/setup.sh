@@ -151,8 +151,9 @@ else
     success ".env created from .env.example"
     warn "⚠️  Fill in your API keys in .env before running agents!"
     warn "   Required: BAND_API_KEY, FEATHERLESS_API_KEY, AIML_API_KEY"
-    warn "   Required: VIRUSTOTAL_API_KEY, GOOGLE_SAFE_BROWSING_KEY, WHOISJSON_KEY"
-    warn "   Required: REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET"
+    warn "   Required: VIRUSTOTAL_API_KEY, WHOISJSON_KEY"
+    warn "   Optional: GOOGLE_SAFE_BROWSING_KEY with ENABLE_SAFE_BROWSING=true"
+    warn "   Optional: REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET with ENABLE_REDDIT=true"
 fi
 
 # =============================================================================

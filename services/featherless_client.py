@@ -28,15 +28,20 @@ import json
 import logging
 import os
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
 # ─── Client Setup ─────────────────────────────────────────────────────────────
 
-FEATHERLESS_BASE_URL = "https://api.featherless.ai/v1"
-PRIMARY_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
-FALLBACK_MODEL = "Qwen/Qwen2.5-72B-Instruct"
+FEATHERLESS_BASE_URL = os.getenv("FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1")
+PRIMARY_MODEL = os.getenv("FEATHERLESS_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
+FALLBACK_MODEL = os.getenv("FEATHERLESS_FALLBACK_MODEL", "Qwen/Qwen2.5-72B-Instruct")
 
 # Lazy-initialised client — created on first use so that missing env vars
 # only surface when an actual API call is made, not at module import time.

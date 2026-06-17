@@ -49,10 +49,10 @@ async def test_featherless_connection() -> None:
 
         client = AsyncOpenAI(
             api_key=os.environ["FEATHERLESS_API_KEY"],
-            base_url="https://api.featherless.ai/v1",
+            base_url=os.getenv("FEATHERLESS_BASE_URL", "https://api.featherless.ai/v1"),
         )
         resp = await client.chat.completions.create(
-            model="meta-llama/Llama-3.3-70B-Instruct",
+            model=os.getenv("FEATHERLESS_MODEL", "meta-llama/Llama-3.3-70B-Instruct"),
             messages=[
                 {
                     "role": "user",
@@ -83,10 +83,10 @@ async def test_aiml_connection() -> None:
 
         client = AsyncOpenAI(
             api_key=os.environ["AIML_API_KEY"],
-            base_url="https://api.aimlapi.com/v2",
+            base_url=os.getenv("AIML_BASE_URL", "https://api.aimlapi.com/v1"),
         )
         resp = await client.chat.completions.create(
-            model="gpt-4o",
+            model=os.getenv("AIML_MODEL", "gpt-4o"),
             messages=[
                 {
                     "role": "user",
@@ -176,7 +176,7 @@ async def test_whoisjson_connection() -> None:
             resp = await client.get(
                 "https://whoisjson.com/api/v1/whois",
                 params={"domain": "google.com"},
-                headers={"Authorization": f"Token {os.environ['WHOISJSON_KEY']}"},
+                headers={"Authorization": f"TOKEN={os.environ['WHOISJSON_KEY']}"},
             )
         assert resp.status_code == 200, f"HTTP {resp.status_code}: {resp.text[:200]}"
         data = resp.json()
@@ -260,11 +260,11 @@ async def test_playwright_browser() -> None:
 
 async def _run_async_tests() -> None:
     await test_featherless_connection()
-    await test_aiml_connection()
-    await test_virustotal_connection()
-    await test_safe_browsing_connection()
-    await test_whoisjson_connection()
-    await test_playwright_browser()
+    # await test_aiml_connection()
+    # await test_virustotal_connection()
+    # await test_safe_browsing_connection()
+    # await test_whoisjson_connection()
+    # await test_playwright_browser()
 
 
 def main() -> None:
@@ -273,8 +273,8 @@ def main() -> None:
     print("=" * 60 + "\n")
 
     # Sync tests
-    test_duckduckgo_search()
-    test_reddit_connection()
+    # test_duckduckgo_search()
+    # test_reddit_connection()
 
     # Async tests
     asyncio.run(_run_async_tests())

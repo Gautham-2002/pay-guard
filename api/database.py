@@ -24,6 +24,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +47,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
+    AsyncConnection,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
@@ -166,6 +173,34 @@ class CheckRecord(Base):
     )
 
 
+_SQLITE_CHECK_COLUMN_MIGRATIONS = {
+    "additional_context": "TEXT",
+}
+
+
+async def _ensure_sqlite_schema(conn: AsyncConnection) -> None:
+    """
+    Apply tiny additive SQLite migrations for existing local demo databases.
+
+    SQLAlchemy's ``create_all`` creates missing tables but intentionally does
+    not alter existing ones. For the hackathon/demo SQLite DB, adding nullable
+    columns in place is enough and avoids deleting local history.
+    """
+    if conn.dialect.name != "sqlite":
+        return
+
+    rows = await conn.exec_driver_sql("PRAGMA table_info(checks)")
+    existing_columns = {row[1] for row in rows.fetchall()}
+
+    for column_name, column_type in _SQLITE_CHECK_COLUMN_MIGRATIONS.items():
+        if column_name in existing_columns:
+            continue
+        await conn.exec_driver_sql(
+            f"ALTER TABLE checks ADD COLUMN {column_name} {column_type}"
+        )
+        logger.info("api.database: added missing checks.%s column", column_name)
+
+
 # ─── Startup / teardown ───────────────────────────────────────────────────────
 
 
@@ -179,6 +214,7 @@ async def init_db() -> None:
     engine = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _ensure_sqlite_schema(conn)
     logger.info("api.database: tables created/verified at %s", DB_PATH)
 
 

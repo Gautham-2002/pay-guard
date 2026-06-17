@@ -1,8 +1,8 @@
 """
 Band Client — Band Room Coordination Layer
 ==========================================
-Wraps the Band API (https://app.band.ai/api/v1) for async publish/subscribe
-operations used by all PayGuard AI agents.
+Wraps the Band Agent API (https://app.band.ai/api/v1) for async room, event,
+and context operations used by all PayGuard AI agents.
 
 Band rooms serve as the ONLY shared communication layer between agents.
 No agent-to-agent direct communication occurs — every message passes through
@@ -18,13 +18,15 @@ Architecture
 
 Message Storage Strategy
 -------------------------
-Band messages carry a ``content`` field (plain text / @mention string).
-PayGuard wraps every agent payload as JSON and embeds it in the content
-field alongside the required @mention so that the Band API accepts the
-message.  On read, the JSON is extracted back out from the content string.
+PayGuard pipeline records are internal audit/context updates, not routed
+agent-to-agent chat messages.  Band text messages require an @mention of
+another room participant and agents cannot mention themselves, so ``publish()``
+stores pipeline payloads as Band ``task`` events.  Routed chat messages remain
+available through ``publish_routed_message()`` for cases where PayGuard needs
+to explicitly contact a human or peer agent.
 
-Format written to Band content field:
-    @{agent_handle} <PAYGUARD_JSON>{...json payload...}</PAYGUARD_JSON>
+Format written to Band event content:
+    <PAYGUARD_JSON>{...json payload...}</PAYGUARD_JSON>
 
 Implemented in: Phase 1
 """
@@ -37,6 +39,11 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Optional
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 import httpx
 
@@ -55,8 +62,24 @@ class BandConnectionError(Exception):
     """Raised when the Band API is unreachable or returns an unexpected HTTP error."""
 
 
+class BandAuthenticationError(BandConnectionError):
+    """Raised when the configured Band API key is missing or rejected."""
+
+
 class BandTimeoutError(Exception):
     """Raised when a wait_for_* poll operation exceeds its timeout."""
+
+
+def _raise_band_http_error(action: str, exc: httpx.HTTPStatusError) -> None:
+    """Raise a Band exception with an actionable message for common HTTP errors."""
+    status_code = exc.response.status_code
+    body = exc.response.text[:300]
+    if status_code == 401:
+        raise BandAuthenticationError(
+            f"{action}: HTTP 401. BAND_API_KEY was rejected by Band. Use a valid "
+            "Band Agent API key for the FastAPI app shell."
+        ) from exc
+    raise BandConnectionError(f"{action}: HTTP {status_code}. Response: {body}") from exc
 
 
 # ─── BandClient ───────────────────────────────────────────────────────────────
@@ -73,7 +96,7 @@ class BandClient:
     Parameters
     ----------
     api_key:
-        Band agent API key.  Defaults to ``os.getenv("BAND_API_KEY")``.
+        Band Agent API key for the app shell. Defaults to ``os.getenv("BAND_API_KEY")``.
 
     Usage
     -----
@@ -86,6 +109,9 @@ class BandClient:
 
     def __init__(self, api_key: Optional[str] = None) -> None:
         self.api_key: str = api_key or os.getenv("BAND_API_KEY", "")
+        print("===============")
+        print(api_key,os.getenv("BAND_API_KEY", ""))
+        print("init", self.api_key)
         if not self.api_key:
             logger.warning(
                 "BandClient: BAND_API_KEY is not set. All API calls will fail."
@@ -105,7 +131,7 @@ class BandClient:
 
     async def get_agent_profile(self) -> dict:
         """
-        Return the authenticated agent's profile (id, name, handle).
+        Return the authenticated Band profile (id, name, handle).
         Result is cached after the first call.
         """
         if self._agent_profile is not None:
@@ -118,9 +144,7 @@ class BandClient:
             return self._agent_profile
         except httpx.HTTPStatusError as exc:
             logger.error("Band get_agent_profile HTTP error: %s", exc)
-            raise BandConnectionError(
-                f"Failed to fetch agent profile: HTTP {exc.response.status_code}"
-            ) from exc
+            _raise_band_http_error("Failed to fetch Band agent profile", exc)
         except httpx.RequestError as exc:
             logger.error("Band get_agent_profile connection error: %s", exc)
             raise BandConnectionError(
@@ -144,6 +168,8 @@ class BandClient:
             A room object bound to this client.
         """
         try:
+            print("create room", self.api_key)
+            
             resp = await self._http.post(
                 "/agent/chats",
                 json={"chat": {"title": name}},
@@ -154,9 +180,7 @@ class BandClient:
             return BandRoom(room_id=data["id"], name=name, client=self)
         except httpx.HTTPStatusError as exc:
             logger.error("Band create_room HTTP error: %s | body: %s", exc, exc.response.text)
-            raise BandConnectionError(
-                f"Failed to create Band room '{name}': HTTP {exc.response.status_code}"
-            ) from exc
+            _raise_band_http_error(f"Failed to create Band room '{name}'", exc)
         except httpx.RequestError as exc:
             logger.error("Band create_room connection error: %s", exc)
             raise BandConnectionError(
@@ -185,14 +209,48 @@ class BandClient:
             return BandRoom(room_id=room_id, name=name, client=self)
         except httpx.HTTPStatusError as exc:
             logger.error("Band get_room HTTP error: %s", exc)
-            raise BandConnectionError(
-                f"Failed to get Band room '{room_id}': HTTP {exc.response.status_code}"
-            ) from exc
+            _raise_band_http_error(f"Failed to get Band room '{room_id}'", exc)
         except httpx.RequestError as exc:
             logger.error("Band get_room connection error: %s", exc)
             raise BandConnectionError(
                 f"Failed to connect to Band API: {exc}"
             ) from exc
+
+    async def get_peers(self, not_in_chat: Optional[str] = None) -> list[dict]:
+        """Return peers this agent can recruit into Band rooms."""
+        params = {"not_in_chat": not_in_chat} if not_in_chat else None
+        try:
+            resp = await self._http.get("/agent/peers", params=params)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            return data if isinstance(data, list) else []
+        except httpx.HTTPStatusError as exc:
+            logger.error("Band get_peers HTTP error: %s", exc)
+            _raise_band_http_error("Failed to list Band peers", exc)
+        except httpx.RequestError as exc:
+            logger.error("Band get_peers connection error: %s", exc)
+            raise BandConnectionError(
+                f"Failed to connect to Band API: {exc}"
+            ) from exc
+
+    async def find_peer_by_handle(
+        self,
+        handle: str,
+        not_in_chat: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Find a recruitable Band peer by exact handle."""
+        peers = await self.get_peers(not_in_chat=not_in_chat)
+        available_handles = [p.get("handle") for p in peers]
+        logger.info(
+            "Band peers available (not_in_chat=%s): %s — looking for '%s'",
+            not_in_chat,
+            available_handles,
+            handle,
+        )
+        for peer in peers:
+            if peer.get("handle") == handle:
+                return peer
+        return None
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client. Call when the client is no longer needed."""
@@ -246,19 +304,28 @@ class BandRoom:
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _encode_message(self, payload: dict, agent_handle: str) -> str:
+    def _encode_payload(self, payload: dict) -> str:
         """
         Encode a dict payload into a Band-compatible content string.
 
-        Band requires every message to contain at least one @mention.
-        We embed the JSON payload inside a custom XML-like tag so it
-        can be reliably parsed back out on read.
-
-        Format:
-            @{agent_handle} <PAYGUARD_JSON>{...}</PAYGUARD_JSON>
+        The XML-like tag keeps PayGuard payloads easy to extract from Band
+        context entries without depending on the display text around them.
         """
         json_str = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        return f"@{agent_handle} {_JSON_TAG_OPEN}{json_str}{_JSON_TAG_CLOSE}"
+        return f"{_JSON_TAG_OPEN}{json_str}{_JSON_TAG_CLOSE}"
+
+    def _decode_payload_from_content(self, content: str) -> Optional[dict]:
+        """Extract a PayGuard JSON payload from a Band content string."""
+        start = content.find(_JSON_TAG_OPEN)
+        end = content.find(_JSON_TAG_CLOSE)
+        if start == -1 or end == -1 or end < start:
+            return None
+        json_str = content[start + len(_JSON_TAG_OPEN): end]
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as exc:
+            logger.warning("BandRoom: failed to decode PayGuard JSON from content: %s", exc)
+            return None
 
     def _decode_message(self, raw_message: dict) -> Optional[dict]:
         """
@@ -268,21 +335,57 @@ class BandRoom:
         JSON block (i.e., it is a plain Band system message).
         """
         content: str = raw_message.get("content", "")
-        start = content.find(_JSON_TAG_OPEN)
-        end = content.find(_JSON_TAG_CLOSE)
-        if start == -1 or end == -1:
+        payload = self._decode_payload_from_content(content)
+        if payload is None:
             return None
-        json_str = content[start + len(_JSON_TAG_OPEN): end]
-        try:
-            payload = json.loads(json_str)
-            # Attach Band-level metadata for traceability
-            payload.setdefault("_band_message_id", raw_message.get("id"))
-            payload.setdefault("_band_inserted_at", raw_message.get("inserted_at"))
-            payload.setdefault("_band_sender_type", raw_message.get("sender_type"))
-            return payload
-        except json.JSONDecodeError as exc:
-            logger.warning("BandRoom: failed to decode PayGuard JSON from message: %s", exc)
+        # Attach Band-level metadata for traceability
+        payload.setdefault("_band_message_id", raw_message.get("id"))
+        payload.setdefault("_band_inserted_at", raw_message.get("inserted_at"))
+        payload.setdefault("_band_sender_type", raw_message.get("sender_type"))
+        return payload
+
+    def _decode_context_entry(self, entry: dict) -> Optional[dict]:
+        """
+        Parse a Band context entry into a PayGuard payload.
+
+        Band context payloads can include messages and events.  SDK/API versions
+        differ a little in shape, so this accepts both direct ``content`` fields
+        and nested ``message``/``event`` objects.
+        """
+        candidate = entry
+        for key in ("message", "event"):
+            if isinstance(entry.get(key), dict):
+                candidate = entry[key]
+                break
+
+        payload: Optional[dict] = None
+        metadata = candidate.get("metadata")
+        if isinstance(metadata, dict):
+            metadata_payload = metadata.get("payguard_payload")
+            if isinstance(metadata_payload, dict):
+                payload = metadata_payload
+
+        if payload is None:
+            content = str(candidate.get("content", ""))
+            payload = self._decode_payload_from_content(content)
+
+        if payload is None:
             return None
+
+        payload.setdefault("_band_message_id", candidate.get("id") or entry.get("id"))
+        payload.setdefault(
+            "_band_inserted_at",
+            candidate.get("inserted_at") or entry.get("inserted_at"),
+        )
+        payload.setdefault(
+            "_band_sender_type",
+            candidate.get("sender_type") or entry.get("sender_type") or "agent",
+        )
+        payload.setdefault(
+            "_band_record_type",
+            candidate.get("message_type") or entry.get("message_type") or entry.get("type"),
+        )
+        return payload
 
     async def _get_agent_handle(self) -> str:
         """Return the agent's handle (e.g. ``john_doe/my-agent``) from its profile."""
@@ -311,9 +414,71 @@ class BandRoom:
 
     # ── Core message operations ───────────────────────────────────────────────
 
+    async def add_participant_by_handle(self, handle: str) -> dict:
+        """
+        Recruit a peer into this Band room by handle.
+
+        The app-shell Band key must have the peer in its reachable peer network.
+
+        Band API v1 schema (confirmed from docs):
+            POST /agent/chats/:chat_id/participants
+            Body: {"participant": {"participant_id": "<uuid>", "role": "member"}}
+        Only ``participant_id`` (UUID) and ``role`` are accepted; ``id``,
+        ``handle``, and ``type`` are all rejected with HTTP 422.
+        """
+        peer = await self._client.find_peer_by_handle(handle, not_in_chat=self._room_id)
+        if peer is None:
+            raise BandConnectionError(
+                f"Band peer '@{handle}' was not found or is already unavailable for room "
+                f"'{self._name}'. Make sure the agents are siblings/contacts in Band."
+            )
+
+        participant_id = peer.get("id") or peer.get("agent_id") or peer.get("user_id")
+        if not participant_id:
+            raise BandConnectionError(
+                f"Band peer '@{handle}' did not include a UUID (id/agent_id/user_id)."
+            )
+
+        participant_body = {
+            "participant": {
+                "participant_id": participant_id,
+            }
+        }
+        try:
+            resp = await self._client._http.post(
+                f"/agent/chats/{self._room_id}/participants",
+                json=participant_body,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", peer)
+            # Ensure downstream callers can still resolve an id from the response.
+            if not data.get("id") and not data.get("agent_id"):
+                data = {**data, "id": participant_id}
+            return data
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "BandRoom.add_participant_by_handle HTTP error %s: %s",
+                exc.response.status_code,
+                exc.response.text[:300],
+            )
+            _raise_band_http_error(
+                f"Failed to add participant '@{handle}' to Band room '{self._name}'",
+                exc,
+            )
+        except httpx.RequestError as exc:
+            logger.error("BandRoom.add_participant_by_handle connection error: %s", exc)
+            raise BandConnectionError(
+                f"Failed to connect to Band API: {exc}"
+            ) from exc
+
     async def publish(self, message: dict) -> None:
         """
-        Publish a JSON-serialisable dict to this Band room.
+        Publish a JSON-serialisable PayGuard record to this Band room.
+
+        Records are written as Band ``task`` events.  This is the correct shape
+        for the app-owned sequential pipeline because these payloads are audit
+        and shared-context records, not chat messages that should wake another
+        Band participant.
 
         Automatically adds ``published_at`` (ISO-8601 UTC) if not present.
         Logs a schema warning if ``agent`` or ``sequence`` fields are absent
@@ -338,18 +503,96 @@ class BandRoom:
 
         self._validate_payload(message)
 
-        agent_handle = await self._get_agent_handle()
-        agent_id = (await self._client.get_agent_profile()).get("id", "")
-        content = self._encode_message(message, agent_handle)
+        content = self._encode_payload(message)
+        body = {
+            "event": {
+                "content": content,
+                "message_type": "task",
+                "metadata": {
+                    "source": "payguard",
+                    "payguard_payload": message,
+                },
+            }
+        }
 
+        try:
+            resp = await self._client._http.post(
+                f"/agent/chats/{self._room_id}/events",
+                json=body,
+            )
+            resp.raise_for_status()
+            logger.debug(
+                "BandRoom '%s': published event (agent=%s)",
+                self._name,
+                message.get("agent", message.get("type", "unknown")),
+            )
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "BandRoom.publish HTTP error %s: %s",
+                exc.response.status_code,
+                exc.response.text[:300],
+            )
+            _raise_band_http_error(
+                f"Failed to publish event to Band room '{self._name}'",
+                exc,
+            )
+        except httpx.RequestError as exc:
+            logger.error("BandRoom.publish connection error: %s", exc)
+            raise BandConnectionError(
+                f"Failed to connect to Band API: {exc}"
+            ) from exc
+
+    async def publish_routed_message_to_handle(
+        self,
+        message: dict,
+        *,
+        participant_handle: str,
+    ) -> None:
+        """Recruit a handle if needed, then send a routed @mention message."""
+        participant = await self.add_participant_by_handle(participant_handle)
+        await self.publish_routed_message(
+            message,
+            participant_id=str(
+                participant.get("id")
+                or participant.get("agent_id")
+                or participant.get("user_id")
+                or ""
+            ),
+            participant_handle=participant_handle,
+            participant_name=participant.get("name"),
+        )
+
+    async def publish_routed_message(
+        self,
+        message: dict,
+        *,
+        participant_id: str,
+        participant_handle: str,
+        participant_name: Optional[str] = None,
+    ) -> None:
+        """
+        Send a routed Band text message to another room participant.
+
+        Use this only when PayGuard needs Band's @mention routing.  The target
+        participant must already be in the room.  Do not pass the authenticated
+        agent itself; Band rejects self-mentions.
+        """
+        if "published_at" not in message:
+            message = {
+                **message,
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            }
+        self._validate_payload(message)
+
+        content = f"@{participant_handle} {self._encode_payload(message)}"
         body = {
             "message": {
                 "content": content,
                 "mentions": [
                     {
-                        "id": agent_id,
-                        "handle": agent_handle,
-                        "name": agent_handle.split("/")[-1] if "/" in agent_handle else agent_handle,
+                        "id": participant_id,
+                        "handle": participant_handle,
+                        "name": participant_name or participant_handle.split("/")[-1],
                     }
                 ],
             }
@@ -362,22 +605,22 @@ class BandRoom:
             )
             resp.raise_for_status()
             logger.debug(
-                "BandRoom '%s': published message (agent=%s)",
+                "BandRoom '%s': sent routed message to %s",
                 self._name,
-                message.get("agent", message.get("type", "unknown")),
+                participant_handle,
             )
         except httpx.HTTPStatusError as exc:
             logger.error(
-                "BandRoom.publish HTTP error %s: %s",
+                "BandRoom.publish_routed_message HTTP error %s: %s",
                 exc.response.status_code,
                 exc.response.text[:300],
             )
-            raise BandConnectionError(
-                f"Failed to publish to Band room '{self._name}': "
-                f"HTTP {exc.response.status_code}"
-            ) from exc
+            _raise_band_http_error(
+                f"Failed to send routed message in Band room '{self._name}'",
+                exc,
+            )
         except httpx.RequestError as exc:
-            logger.error("BandRoom.publish connection error: %s", exc)
+            logger.error("BandRoom.publish_routed_message connection error: %s", exc)
             raise BandConnectionError(
                 f"Failed to connect to Band API: {exc}"
             ) from exc
@@ -386,9 +629,9 @@ class BandRoom:
         """
         Return all PayGuard messages in this room in chronological order.
 
-        Fetches all pages from Band (uses ``status=all`` to include already-
-        processed messages) and decodes each one from its embedded JSON.
-        Plain Band system messages without a PayGuard JSON block are omitted.
+        Reads the Band ``/context`` endpoint first so task events written by
+        ``publish()`` are included.  Falls back to ``/messages?status=all`` for
+        older Band API deployments or diagnostics.
 
         Returns
         -------
@@ -399,6 +642,35 @@ class BandRoom:
         ------
         BandConnectionError
         """
+        try:
+            resp = await self._client._http.get(
+                f"/agent/chats/{self._room_id}/context",
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            context_entries = body.get("data", body)
+            if isinstance(context_entries, dict):
+                for key in ("context", "messages", "events", "items"):
+                    if isinstance(context_entries.get(key), list):
+                        context_entries = context_entries[key]
+                        break
+
+            if isinstance(context_entries, list):
+                decoded = [self._decode_context_entry(e) for e in context_entries if isinstance(e, dict)]
+                messages = [m for m in decoded if m is not None]
+                if messages:
+                    return messages
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "BandRoom.get_messages context endpoint HTTP error %s; falling back to messages",
+                exc.response.status_code,
+            )
+        except httpx.RequestError as exc:
+            logger.warning(
+                "BandRoom.get_messages context endpoint connection error; falling back to messages: %s",
+                exc,
+            )
+
         all_raw: list[dict] = []
         page = 1
         page_size = 100  # Maximum per page to reduce round-trips
@@ -421,10 +693,10 @@ class BandRoom:
                 page += 1
         except httpx.HTTPStatusError as exc:
             logger.error("BandRoom.get_messages HTTP error: %s", exc)
-            raise BandConnectionError(
-                f"Failed to fetch messages from Band room '{self._name}': "
-                f"HTTP {exc.response.status_code}"
-            ) from exc
+            _raise_band_http_error(
+                f"Failed to fetch messages from Band room '{self._name}'",
+                exc,
+            )
         except httpx.RequestError as exc:
             logger.error("BandRoom.get_messages connection error: %s", exc)
             raise BandConnectionError(

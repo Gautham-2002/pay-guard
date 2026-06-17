@@ -48,7 +48,7 @@ No agent communicates directly with another — Band room is the only shared lay
 | Web Crawling | Playwright (headless Chromium) |
 | Web Search | duckduckgo-search (free, no key) |
 | Reddit | PRAW (free) |
-| Domain Intel | VirusTotal · Google Safe Browsing · WhoisJSON |
+| Domain Intel | VirusTotal · WhoisJSON · optional Google Safe Browsing |
 | Backend | FastAPI + Python 3.11+ |
 | Frontend | React + Vite (Phase 7) |
 | Storage | SQLite via SQLAlchemy async |
@@ -72,13 +72,48 @@ cp .env.example .env
 # Fill in your API keys in .env
 ```
 
-### 3. Verify all API connections
+`BAND_API_KEY` is a Band Agent API key for the FastAPI app shell. The app uses
+it to create rooms, recruit Agent 1, and seed the first @mention. In practice,
+Band's `/agent/...` API rejects normal user keys here.
+
+For the cleanest flow, create a dedicated app-shell/bridge Remote Agent in Band
+and use that API key for `BAND_API_KEY`. Avoid reusing Agent 1's key if possible:
+the app may need to mention Agent 1, and self-mentions can be rejected by Band.
+The four runnable specialist remote-agent keys still live in `agent_config.yaml`.
+
+For adapter-based Band agents, also copy `agent_config.example.yaml` to
+`agent_config.yaml`, create one Band Remote Agent for each key in that file,
+and add `FEATHERLESS_API_KEY` / `AIML_API_KEY` to `.env`.
+
+Install the Band remote-agent SDK and LangGraph adapter extra:
+
+```bash
+uv sync --extra remote-agents
+```
+
+### 3. Start Band remote agents
+
+Each process connects to Band, waits for @mentions, and runs a LangGraphAdapter
+backed by the same OpenAI-compatible providers used by the pipeline:
+
+```bash
+uv run payguard-agent1
+uv run payguard-agent2
+uv run payguard-agent3
+uv run payguard-agent4
+```
+
+The FastAPI app creates a Band room, recruits Agent 1 by handle, and seeds the
+initial @mention. The remote agents perform the specialist analysis and hand off
+through Band.
+
+### 4. Verify all API connections
 
 ```bash
 uv run python tests/test_connections.py
 ```
 
-### 4. Start the API server
+### 5. Start the API server
 
 ```bash
 uv run uvicorn api.main:app --reload --port 8000
@@ -96,9 +131,12 @@ pay-guard/
 │   ├── agent1_destination.py   # Featherless AI — domain/UPI intel
 │   ├── agent2_qr_upi.py        # AIML API — QR decode & context validation
 │   ├── agent3_web_intelligence.py  # Playwright + DDG + Reddit synthesis
-│   └── agent4_verdict.py       # AIML API — final verdict
+│   ├── agent4_verdict.py       # AIML API — final verdict
+│   ├── llm_adapter.py          # Shared Band LangGraphAdapter setup
+│   ├── remote_agent*.py        # Band remote-agent runners
+│   └── remote_tools.py         # Reusable PayGuard tools for Band agents
 ├── services/                   # API clients & utilities
-│   ├── band_client.py          # Band room pub/sub
+│   ├── band_client.py          # Band remote-agent rooms/events/context
 │   ├── featherless_client.py   # Featherless AI wrapper
 │   ├── aiml_client.py          # AIML API wrapper (text + vision)
 │   ├── domain_intel.py         # WHOIS / VirusTotal / GSB / SSL

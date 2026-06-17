@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────
+#  PayGuard AI — Band Remote Agent Credentials
+#  Copy this to agent_config.yaml and fill in real values.
+#  NEVER commit agent_config.yaml to git.
+#
+#  How to get these values:
+#  1. Go to https://app.band.ai/agents
+#  2. Click New Agent -> Remote Agent
+#  3. Create four agents with names like:
+#     Destination Intelligence / QR UPI Validator /
+#     Web Intelligence / Verdict Synthesis
+#  4. Copy the API key immediately; Band shows it only once.
+#  5. Copy the Agent UUID from each agent settings page.
+#  6. Copy each Band handle exactly as shown in Band. Prompts use these
+#     handles for @mention handoffs, so spelling matters.
+# ─────────────────────────────────────────────────────────────
+
+destination_intelligence:
+  agent_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  api_key: "band-api-xxxxxxxxxxxxxxxxxxxx"
+  handle: "your-team/destination-intelligence"
+  display_name: "Destination Intelligence"
+  provider: "featherless"
+  model: "meta-llama/Llama-3.3-70B-Instruct"
+  max_tokens: 4096
+  next_agent_key: "qr_upi_validator"
+
+qr_upi_validator:
+  agent_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  api_key: "band-api-xxxxxxxxxxxxxxxxxxxx"
+  handle: "your-team/qr-upi-validator"
+  display_name: "QR UPI Validator"
+  provider: "aiml"
+  model: "gpt-4o"
+  max_tokens: 4096
+  next_agent_key: "web_intelligence"
+
+web_intelligence:
+  agent_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  api_key: "band-api-xxxxxxxxxxxxxxxxxxxx"
+  handle: "your-team/web-intelligence"
+  display_name: "Web Intelligence"
+  provider: "aiml"
+  model: "gpt-4o"
+  max_tokens: 6144
+  next_agent_key: "verdict_synthesis"
+
+verdict_synthesis:
+  agent_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  api_key: "band-api-xxxxxxxxxxxxxxxxxxxx"
+  handle: "your-team/verdict-synthesis"
+  display_name: "Verdict Synthesis"
+  provider: "aiml"
+  model: "claude-3-5-sonnet"
+  max_tokens: 6144
+  next_agent_key: null

@@ -1,8 +1,8 @@
 """
 Populate Demo Cache
 ====================
-Calls real external APIs (VirusTotal, WHOIS, Google Safe Browsing, SSL) for
-all 5 demo scenarios and saves the results to data/demo_cache.json.
+Calls real external APIs (VirusTotal, WHOIS, SSL) for all 5 demo scenarios and
+saves the results to data/demo_cache.json.
 
 Run ONCE before recording the demo video:
     uv run python scripts/populate_demo_cache.py
@@ -40,9 +40,7 @@ from services.domain_intel import (
     fetch_virustotal_url,
     fetch_virustotal_domain,
     fetch_whois,
-    fetch_safe_browsing,
     fetch_ssl_info,
-    _extract_domain,
 )
 
 logging.basicConfig(
@@ -71,11 +69,10 @@ async def populate_domain(domain: str, client: httpx.AsyncClient) -> dict:
     logger.info("Fetching signals for domain: %s", domain)
     url = f"https://{domain}"
 
-    vt_url, vt_domain, whois, gsb = await asyncio.gather(
+    vt_url, vt_domain, whois = await asyncio.gather(
         fetch_virustotal_url(url, client),
         fetch_virustotal_domain(domain, client),
         fetch_whois(domain, client),
-        fetch_safe_browsing(url, client),
         return_exceptions=True,
     )
 
@@ -91,7 +88,7 @@ async def populate_domain(domain: str, client: httpx.AsyncClient) -> dict:
         "virustotal_url":    safe(vt_url, "virustotal_url"),
         "virustotal_domain": safe(vt_domain, "virustotal_domain"),
         "whois":             safe(whois, "whois"),
-        "safe_browsing":     safe(gsb, "safe_browsing"),
+        "safe_browsing":     {"disabled": True, "reason": "temporarily disabled"},
         "ssl":               ssl_info,
     }
     logger.info("  ✓ %s — done", domain)

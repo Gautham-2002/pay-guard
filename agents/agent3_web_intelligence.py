@@ -2,7 +2,7 @@
 Agent 3 — Web Intelligence Agent
 ==================================
 Power:   Playwright (headless Chromium) + duckduckgo-search (free, no key)
-         + PRAW/Reddit (free) + BeautifulSoup + AIML API for final synthesis
+         + BeautifulSoup + AIML API for final synthesis
 Trigger: After Agent 2 publishes to the Band room.
 
 Pipeline steps
@@ -10,7 +10,7 @@ Pipeline steps
 1. Website Crawl (Playwright) + screenshot  [skipped if no URL]
 2. Screenshot visual analysis (AIML API vision)
 3. Web search: DDG fraud complaints + official site + UPI fraud + price
-4. Reddit search via PRAW
+4. Reddit search via PRAW (temporarily disabled)
 5. Quora scrape via BeautifulSoup
 6. Price intelligence (DDG + AIML API)
 7. Final synthesis (AIML API)
@@ -25,9 +25,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse, quote_plus
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 import httpx
 
@@ -227,6 +233,10 @@ async def search_reddit(query: str) -> list:
         try:
             import praw  # type: ignore
             import os
+
+            if os.getenv("ENABLE_REDDIT", "false").lower() != "true":
+                logger.info("Reddit search disabled; set ENABLE_REDDIT=true to enable.")
+                return []
 
             reddit = praw.Reddit(
                 client_id=os.getenv("REDDIT_CLIENT_ID", ""),
@@ -527,12 +537,12 @@ async def run(
     )
 
     # ── Step 4: Reddit Search ──────────────────────────────────────────────────
-    reddit_query = domain or upi_id or (product_description or "")
-    reddit_results: list = []
-    if reddit_query:
-        logger.info("Agent 3: searching Reddit for '%s'...", reddit_query[:60])
-        reddit_results = await search_reddit(reddit_query)
-        logger.info("Agent 3: Reddit returned %d posts", len(reddit_results))
+    # reddit_query = domain or upi_id or (product_description or "")
+    # reddit_results: list = []
+    # if reddit_query:
+    #     logger.info("Agent 3: searching Reddit for '%s'...", reddit_query[:60])
+    #     reddit_results = await search_reddit(reddit_query)
+    #     logger.info("Agent 3: Reddit returned %d posts", len(reddit_results))
 
     # ── Step 5: Quora Scrape ───────────────────────────────────────────────────
     quora_results: list = []
@@ -570,7 +580,7 @@ async def run(
             "upi_fraud_results": search_results.get("upi_fraud_results", [])[:5],
             "price_results": search_results.get("price_results", [])[:5],
         },
-        "reddit_findings": reddit_results[:5],
+        # "reddit_findings": reddit_results[:5],
         "quora_findings": quora_results,
         "price_intelligence": price_data,
     }
@@ -603,11 +613,11 @@ async def run(
         }
         await band_room.publish(hitl_message)
 
-    # ── Build Agent3Output ─────────────────────────────────────────────────────
-    reddit_mentions = [
-        f"r/{r.get('subreddit')}: {r.get('title', '')[:100]}"
-        for r in reddit_results[:5]
-    ]
+    # # ── Build Agent3Output ─────────────────────────────────────────────────────
+    # reddit_mentions = [
+    #     f"r/{r.get('subreddit')}: {r.get('title', '')[:100]}"
+    #     for r in reddit_results[:5]
+    # ]
 
     price_intelligence_obj: PriceIntelligence | None = None
     if price_data and product_description and amount is not None:
@@ -635,7 +645,7 @@ async def run(
         complaint_sources=synthesis.get("complaint_sources", []),
         official_alternative_found=bool(synthesis.get("official_alternative_found", False)),
         official_site=synthesis.get("official_site"),
-        reddit_mentions=reddit_mentions,
+        # reddit_mentions=reddit_mentions,
         price_intelligence=price_intelligence_obj,
         web_risk_level=web_risk_level,
         agent_narrative=synthesis.get("agent_narrative", ""),

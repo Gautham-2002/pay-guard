@@ -14,6 +14,7 @@ VirusTotal (API v3)
   - Returns  : malicious/suspicious/harmless vote counts from 70+ AV engines.
 
 Google Safe Browsing (API v4)
+  - Temporarily disabled unless ENABLE_SAFE_BROWSING=true.
   - Endpoint : POST https://safebrowsing.googleapis.com/v4/threatMatches:find
   - Key      : GOOGLE_SAFE_BROWSING_KEY
   - Returns  : threat type list (MALWARE, SOCIAL_ENGINEERING, etc.).
@@ -47,6 +48,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -55,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 VT_KEY = os.getenv("VIRUSTOTAL_API_KEY", "")
 GSB_KEY = os.getenv("GOOGLE_SAFE_BROWSING_KEY", "")
+ENABLE_SAFE_BROWSING = os.getenv("ENABLE_SAFE_BROWSING", "false").lower() == "true"
 WJ_KEY = os.getenv("WHOISJSON_KEY", "")
 
 # ─── Demo Cache ───────────────────────────────────────────────────────────────
@@ -238,7 +245,7 @@ async def fetch_whois(domain: str, client: httpx.AsyncClient) -> dict:
         resp = await client.get(
             "https://whoisjson.com/api/v1/whois",
             params={"domain": domain},
-            headers={"Authorization": f"Token {WJ_KEY}"},
+            headers={"Authorization": f"TOKEN={WJ_KEY}"},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -313,6 +320,9 @@ async def fetch_safe_browsing(url: str, client: httpx.AsyncClient) -> dict:
     if cached is not None:
         logger.info("[DEMO CACHE] safe_browsing for %s", domain)
         return cached
+
+    if not ENABLE_SAFE_BROWSING:
+        return {"disabled": True, "reason": "Safe Browsing temporarily disabled"}
 
     if not GSB_KEY:
         return {"error": "GOOGLE_SAFE_BROWSING_KEY not configured"}
@@ -507,7 +517,7 @@ async def collect_all_signals(url: str = None, upi_id: str = None) -> dict:
     """
     Main entry point — collects ALL available signals concurrently.
 
-    If URL: fetch WHOIS, VT URL scan, VT domain report, GSB, SSL.
+    If URL: fetch WHOIS, VT URL scan, VT domain report, optional GSB, SSL.
     If UPI ID: analyze VPA structure only.
     If both: fetch all.
 
@@ -531,7 +541,6 @@ async def collect_all_signals(url: str = None, upi_id: str = None) -> dict:
                 fetch_whois(domain, client),
                 fetch_virustotal_url(url, client),
                 fetch_virustotal_domain(domain, client),
-                fetch_safe_browsing(url, client),
                 return_exceptions=True,
             )
 
@@ -544,12 +553,11 @@ async def collect_all_signals(url: str = None, upi_id: str = None) -> dict:
         whois_result = _safe_result(gather_results[0], "fetch_whois")
         vt_url_result = _safe_result(gather_results[1], "fetch_virustotal_url")
         vt_domain_result = _safe_result(gather_results[2], "fetch_virustotal_domain")
-        gsb_result = _safe_result(gather_results[3], "fetch_safe_browsing")
 
         results["whois"] = whois_result
         results["virustotal_url"] = vt_url_result
         results["virustotal_domain"] = vt_domain_result
-        results["google_safe_browsing"] = gsb_result
+        results["google_safe_browsing"] = await fetch_safe_browsing(url, client)
 
         # SSL check runs via executor (blocking) — run after gather is done
         results["ssl"] = await fetch_ssl_info(domain)
