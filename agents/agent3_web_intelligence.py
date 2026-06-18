@@ -41,6 +41,7 @@ from api.models import Agent3Output, PriceIntelligence, RiskLevel
 from services.band_client import BandRoom
 from services import aiml_client
 from services.smart_crawler import resolve_url_for_crawl, CrawlTarget
+from services.web_crawl import crawl_page
 
 logger = logging.getLogger(__name__)
 
@@ -78,55 +79,10 @@ def _extract_json(raw: str) -> dict:
 
 async def crawl_website(url: str) -> dict:
     """
-    Use Playwright to crawl the URL. Returns crawl data or crawl_error on failure.
+    Crawl the URL via Playwright or httpx fallback. Returns crawl data or crawl_error.
     Never raises.
     """
-    try:
-        from playwright.async_api import async_playwright  # type: ignore
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.goto(url, timeout=15000, wait_until="domcontentloaded")
-                title = await page.title()
-
-                # Extract text (truncated to 3000 chars)
-                body_text = await page.inner_text("body")
-                body_text = body_text[:3000]
-
-                # Full-page screenshot as bytes
-                screenshot_bytes = await page.screenshot(full_page=True)
-
-                # Meta description
-                meta_desc = await page.evaluate(
-                    "document.querySelector('meta[name=\"description\"]')?.content || ''"
-                )
-
-                # Check for contact/about pages and GST in text
-                text_lower = body_text.lower()
-                has_contact = "contact" in text_lower
-                has_about = "about" in text_lower
-                has_gst = bool(re.search(r"\b\d{2}[A-Z]{5}\d{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}\b", body_text))
-
-                await browser.close()
-                return {
-                    "url": url,
-                    "title": title,
-                    "meta_description": meta_desc,
-                    "body_text": body_text,
-                    "screenshot_bytes": screenshot_bytes,
-                    "has_contact_page": has_contact,
-                    "has_about_page": has_about,
-                    "has_gst_number": has_gst,
-                    "crawl_error": None,
-                }
-            except Exception as exc:
-                await browser.close()
-                raise exc
-    except Exception as exc:
-        logger.error("crawl_website error for %s: %s", url, exc)
-        return {"crawl_error": str(exc), "screenshot_bytes": None, "url": url}
+    return await crawl_page(url, body_limit=3000)
 
 
 # ─── Step 2: Screenshot Visual Analysis ───────────────────────────────────────

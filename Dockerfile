@@ -11,6 +11,9 @@ RUN npm run build
 # ── Stage 2: Python runtime (API + Band remote agents) ──────────────────────
 FROM python:3.11-slim-bookworm
 
+# Set false on Render free tier (512 MB). Playwright + Chromium needs ~1 GB+.
+ARG INSTALL_PLAYWRIGHT=false
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -31,14 +34,16 @@ COPY deploy/ deploy/
 
 RUN chmod +x deploy/docker-entrypoint.sh deploy/run-api.sh \
     && uv sync --extra remote-agents --no-dev \
-    && uv run playwright install --with-deps chromium
+    && if [ "$INSTALL_PLAYWRIGHT" = "true" ]; then uv run playwright install --with-deps chromium; fi
 
 COPY --from=frontend /build/dist frontend/dist
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     DB_PATH=/app/data/payguard.db \
-    PAYGUARD_QR_ARTIFACT_DIR=/app/data/artifacts/qr
+    PAYGUARD_QR_ARTIFACT_DIR=/app/data/artifacts/qr \
+    DISABLE_PLAYWRIGHT=true \
+    MALLOC_ARENA_MAX=2
 
 EXPOSE 8000
 

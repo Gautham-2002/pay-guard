@@ -9,7 +9,7 @@
 #
 # Free tier notes:
 #   - Service spins down after 15 min idle (cold start ~30-60s)
-#   - 512 MB RAM — Agent 3 (Playwright) is tight; monitor logs for OOM
+#   - 512 MB RAM — Playwright disabled; uses httpx crawl fallback instead
 
 services:
   - type: web
@@ -17,9 +17,15 @@ services:
     runtime: docker
     plan: free
     healthCheckPath: /health
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: DISABLE_PLAYWRIGHT
+        value: "true"
+      - key: MALLOC_ARENA_MAX
+        value: "2"
       - key: DB_PATH
         value: /app/data/payguard.db
       - key: PAYGUARD_QR_ARTIFACT_DIR
