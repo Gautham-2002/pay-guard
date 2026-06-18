@@ -65,6 +65,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from services import aiml_client
+from services.web_crawl import crawl_social_page
 
 logger = logging.getLogger(__name__)
 
@@ -231,76 +232,10 @@ async def classify_url_platform(url: str) -> str:
 
 async def _crawl_social_page(url: str, max_scroll: int = 3) -> dict:
     """
-    Use Playwright to crawl a social media profile or post page.
-
-    Scrolls the page up to `max_scroll` times to load lazy content.
-    Returns a dict with:
-      - body_text: visible text on the page (up to 4000 chars)
-      - all_links: list of outbound href links found
-      - crawl_error: error string or None
-    """
-    try:
-        from playwright.async_api import async_playwright  # type: ignore
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                context = await browser.new_context(
-                    # Mobile viewport — many social pages render better on mobile
-                    viewport={"width": 390, "height": 844},
-                    user_agent=(
-                        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-                        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
-                        "Version/17.0 Mobile/15E148 Safari/604.1"
-                    ),
-                )
-                page = await context.new_page()
-
-                # Block heavy resources to speed up crawl
-                await page.route(
-                    "**/*.{mp4,webm,ogg,mp3,wav,gif,svg}",
-                    lambda route: route.abort(),
-                )
-
-                await page.goto(url, timeout=20000, wait_until="domcontentloaded")
-
-                # Scroll to trigger lazy-loaded content (captions, comments)
-                for _ in range(max_scroll):
-                    await page.evaluate("window.scrollBy(0, 800)")
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=3000)
-                    except Exception:
-                        pass  # timeout on scroll is fine
-
-                body_text = await page.inner_text("body")
-                body_text = body_text[:4000]
-
-                # Extract all href links from the page
-                links_raw = await page.evaluate(
-                    "Array.from(document.querySelectorAll('a[href]')).map(a => a.href)"
-                )
-                all_links: list[str] = [
-                    lnk for lnk in (links_raw or [])
-                    if isinstance(lnk, str) and lnk.startswith("http")
-                ][:100]  # cap at 100 links
-
-                await browser.close()
-                return {
-                    "body_text": body_text,
-                    "all_links": all_links,
-                    "crawl_error": None,
-                }
-            except Exception as exc:
-                await browser.close()
-                raise exc
-
-    except Exception as exc:
-        logger.warning("smart_crawler: social page crawl failed for %s — %s", url, exc)
-        return {
-            "body_text": "",
-            "all_links": [],
-            "crawl_error": str(exc),
-        }
+    Crawl a social media profile or post page (Playwright or httpx fallback).
+  """
+    del max_scroll  # scrolling only applies to Playwright mode
+    return await crawl_social_page(url, body_limit=4000)
 
 
 # ─── Step 3: Extract Product URL from Social Page ─────────────────────────────
