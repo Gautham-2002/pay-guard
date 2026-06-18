@@ -1,0 +1,116 @@
+[
+  {
+    "id": "qr_refund_scam",
+    "name": "QR Refund Scam",
+    "description": "Fraudsters convince victims they need to scan a QR code to receive a refund or cashback. In reality, you can only SEND money by scanning a QR — you never receive money this way.",
+    "red_flags": [
+      "Someone asks you to scan a QR code to 'receive' a refund, cashback, or prize",
+      "The QR was sent over WhatsApp or Telegram by an unknown contact",
+      "The payee name on the QR says 'Flipkart', 'Amazon', or a bank, but the UPI ID is a personal account (e.g. random123@ybl)",
+      "Pre-filled amount on the QR ends in 999 (e.g. ₹9,999 or ₹49,999)",
+      "Caller creates urgency — 'scan in the next 2 minutes or your refund will expire'"
+    ],
+    "what_to_do": [
+      "Stop immediately — scanning a QR SENDS money, it never receives it",
+      "Block and report the number on WhatsApp",
+      "Report the UPI ID at cybercrime.gov.in or call 1930",
+      "Alert your bank if you already scanned and paid"
+    ],
+    "example": "A 'Flipkart customer care agent' called saying your order refund of ₹4,999 is pending. They sent a QR code via WhatsApp and said 'scan to receive the refund'. The QR payee name said 'Flipkart Refund Desk' but the UPI ID was someone123@ybl — a personal account with no Flipkart connection."
+  },
+  {
+    "id": "olx_buyer_scam",
+    "name": "OLX / Marketplace Buyer Scam",
+    "description": "A fake buyer on OLX or Facebook Marketplace contacts you, agrees to your price, and sends a QR code or UPI request claiming it is a payment 'verification' or 'token amount'. Scanning or accepting sends money TO them.",
+    "red_flags": [
+      "Buyer insists on paying via a QR code they send to you, rather than using OLX's built-in payment",
+      "They ask you to enter your UPI PIN to 'accept' their payment — entering PIN always SENDS money",
+      "Buyer claims to be in the Army, Navy, or a government job to build trust quickly",
+      "The amount offered is suspiciously higher than your asking price",
+      "They request your bank account number and OTP under the guise of payment verification"
+    ],
+    "what_to_do": [
+      "Only accept payments after physically meeting the buyer or via COD",
+      "Never enter your UPI PIN to receive money — PIN is only for sending",
+      "Reverse image search the buyer's profile picture",
+      "Report the account on OLX and to cybercrime.gov.in"
+    ],
+    "example": "You listed a second-hand laptop for ₹25,000 on OLX. A 'Colonel Sharma' offered ₹27,000 and sent a UPI collect request for ₹1 as 'verification'. Accepting it shared your UPI details; subsequent collect requests drained ₹15,000 before you noticed."
+  },
+  {
+    "id": "fake_customer_support",
+    "name": "Fake Customer Support Scam",
+    "description": "Fraudsters pose as bank, TRAI, Amazon, or Paytm customer care agents and convince victims to share OTPs, install screen-sharing apps, or authorise UPI collect requests to 'resolve' a fake account issue.",
+    "red_flags": [
+      "Unsolicited call claiming your bank account, UPI, or SIM is about to be blocked",
+      "Caller asks for your OTP, card CVV, or UPI PIN over the phone — legitimate agents never do this",
+      "You are asked to install AnyDesk, TeamViewer, or QuickSupport for 'remote assistance'",
+      "The support phone number was found via a Google search — official numbers are on the back of your card or on the bank website",
+      "Caller gives you a fake employee ID number to sound official"
+    ],
+    "what_to_do": [
+      "Hang up immediately — call back using the number printed on your debit/credit card",
+      "Never share OTP, PIN, or CVV — your bank's real agents will never ask",
+      "Do not install any app suggested by an unsolicited caller",
+      "Report the number to the National Cyber Crime portal (cybercrime.gov.in)"
+    ],
+    "example": "A caller identified himself as 'SBI YONO support' and said your KYC had expired. He asked you to share a screen-sharing app link and then an OTP to 'verify your account'. Within minutes ₹80,000 was transferred from your account via UPI."
+  },
+  {
+    "id": "advance_fee_job_scam",
+    "name": "Advance Fee / Fake Job Offer Scam",
+    "description": "Scammers post fake job listings on LinkedIn, Indeed, or WhatsApp groups, then ask hired candidates to pay a 'security deposit', 'training fee', or 'registration fee' via UPI before work begins. The job never materialises.",
+    "red_flags": [
+      "Job offer received with no formal interview — instant 'selection' via WhatsApp or Telegram",
+      "High-paying work-from-home job that requires 'only 2 hours a day'",
+      "Request for advance payment: registration fee, ID card fee, training material fee, or security deposit",
+      "Company name is similar to a real company but the email domain is Gmail or Yahoo",
+      "After paying one fee, more fees are demanded before 'salary release'"
+    ],
+    "what_to_do": [
+      "Verify the company on LinkedIn and the Ministry of Corporate Affairs (MCA) portal",
+      "Never pay money to get a job — legitimate employers pay YOU",
+      "Search the job description and company name + 'scam' on Google",
+      "Report fake jobs to cybercrime.gov.in and the job platform itself"
+    ],
+    "example": "A recruiter messaged on LinkedIn offering a ₹45,000/month data entry job. After a WhatsApp 'interview', you were asked to pay ₹2,500 for an ID card and ₹5,000 for training. Once paid, the recruiter stopped responding."
+  },
+  {
+    "id": "fake_lottery_prize",
+    "name": "Fake Lottery / Prize Scam",
+    "description": "Victims receive a call, SMS, or WhatsApp message saying they have won a lottery, lucky draw, or KBC prize and must pay 'GST', 'processing fees', or 'courier charges' via UPI to claim the winnings.",
+    "red_flags": [
+      "You receive a prize notification for a lottery or contest you never entered",
+      "The prize is contingent on paying GST, customs duty, or a processing fee upfront",
+      "Caller claims to be from KBC (Kaun Banega Crorepati), RBI, or a government department",
+      "You are given a tight deadline: 'pay within 24 hours or prize is forfeited'",
+      "Prize money is always a round crore figure (₹25 lakh, ₹50 lakh)"
+    ],
+    "what_to_do": [
+      "Ignore and block — you cannot win a lottery you never entered",
+      "The RBI never contacts individuals about prize money; no government body does",
+      "Never pay 'taxes' or 'fees' to collect any prize — this is the scam itself",
+      "Report to cybercrime.gov.in or call the national helpline 1930"
+    ],
+    "example": "You get an SMS: 'Congratulations! You have won ₹25 lakh in the KBC Lucky Draw. Your number was selected from Jio records. Pay ₹8,500 GST via UPI to release your prize within 6 hours.' KBC never randomly selects numbers — this is a scam."
+  },
+  {
+    "id": "fake_ecommerce_deal",
+    "name": "Fake E-commerce / Too Good To Be True Deal",
+    "description": "Scammers build cloned or brand-new shopping websites offering luxury goods (iPhones, laptops, gold jewellery) at impossibly low prices. After payment via UPI, the product is never delivered or a worthless substitute arrives.",
+    "red_flags": [
+      "Price is 70–90% below the market rate (e.g. iPhone 15 for ₹5,000)",
+      "The domain was registered very recently (less than 6 months old)",
+      "No physical address, GST number, or verifiable contact information on the site",
+      "Payment is only accepted via UPI direct transfer — no COD or card option",
+      "The website URL is a misspelling or imitation of a real brand (e.g. flipkart-deals.in, amaz0n-sale.co.in)"
+    ],
+    "what_to_do": [
+      "Check the website's domain age using a WHOIS tool — new domains are a major red flag",
+      "Search the site name + 'scam' or 'review' before buying",
+      "Only buy from established platforms with buyer protection (Flipkart, Amazon, Myntra)",
+      "If you already paid, file a complaint at cybercrime.gov.in and contact your bank for a chargeback"
+    ],
+    "example": "A Facebook ad showed 'Brand New iPhone 15 Pro — Diwali Sale ₹4,999'. The site (apple-india-offer.com, registered 2 weeks ago) had no contact details and insisted on UPI payment. After paying, the number went unreachable."
+  }
+]

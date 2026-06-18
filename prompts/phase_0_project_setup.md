@@ -1,6 +1,7 @@
 # Phase 0 — Project Foundation & Setup
 
 ## Context
+
 You are building **PayGuard AI** — a pre-payment fraud intelligence system for the Band of Agents Hackathon (lablab.ai, June 2026). It uses 4 AI agents coordinated through Band to analyze payment destinations (UPI ID, URL, QR code) before a user pays, detecting fraud and social engineering.
 
 The full PRD is at: `/home/gautham/Documents/personal-projects/band-hackathon/PayGuard_AI_PRD_v3.md` — read it before starting.
@@ -77,6 +78,7 @@ sse-starlette==2.1.0
 ```
 
 After creating requirements.txt, run:
+
 ```bash
 pip install -r requirements.txt
 playwright install chromium
@@ -253,6 +255,7 @@ class CheckStatus(BaseModel):
 ## Task 4: data/scam_patterns.json
 
 Create a JSON file with 6 scam pattern objects, each with these fields:
+
 - `id`: slug string
 - `name`: display name
 - `description`: 2-sentence description
@@ -261,6 +264,7 @@ Create a JSON file with 6 scam pattern objects, each with these fields:
 - `example`: one real example string
 
 Cover these patterns:
+
 1. QR Refund Scam
 2. OLX Buyer Scam
 3. Fake Customer Support
@@ -315,6 +319,7 @@ data/demo_cache.json
 ## Completion Criteria
 
 You are done when:
+
 - [ ] All folders and files exist at the correct paths
 - [ ] `pip install -r requirements.txt` completes without errors
 - [ ] `playwright install chromium` completes

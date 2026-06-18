@@ -1,0 +1,46 @@
+[project]
+name = "pay-guard"
+version = "0.1.0"
+description = "PayGuard AI — Pre-payment fraud intelligence system using multi-agent AI coordination"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.0",
+    "httpx==0.27.0",
+    "openai>=1.35.0",
+    "python-dotenv>=1.2.2",
+    "python-multipart==0.0.9",
+    "sqlalchemy>=2.0.1",
+    "aiosqlite>=0.20.0",
+    "ratelimit==2.2.1",
+    "playwright==1.44.0",
+    "duckduckgo-search==8.1.1",
+    "praw==7.7.1",
+    "beautifulsoup4>=4.12.3",
+    "lxml>=5.2.2",
+    "Levenshtein>=0.25.1",
+    "pillow>=10.3.0",
+    "pyzbar>=0.1.9",
+    "python-jose[cryptography]==3.3.0",
+    "sse-starlette>=2.1.0",
+    "qrcode[pil]>=8.2",
+]
+
+[project.optional-dependencies]
+remote-agents = [
+    "band-sdk>=0.1.0",
+]
+
+[project.scripts]
+payguard-agent1 = "agents.remote_agent1_destination:cli"
+payguard-agent2 = "agents.remote_agent2_qr_upi:cli"
+payguard-agent3 = "agents.remote_agent3_web_intelligence:cli"
+payguard-agent4 = "agents.remote_agent4_verdict:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agents", "services", "api", "data"]
