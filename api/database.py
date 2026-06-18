@@ -62,7 +62,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_DB_PATH = _PROJECT_ROOT / "data" / "payguard.db"
 DB_PATH: Path = Path(os.getenv("DB_PATH", str(_DEFAULT_DB_PATH)))
 
-DATABASE_URL: str = f"sqlite+aiosqlite:///{DB_PATH}"
+_env_database_url = os.getenv("DATABASE_URL", "").strip()
+if _env_database_url:
+    DATABASE_URL: str = _env_database_url
+else:
+    DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 
 # ─── SQLAlchemy engine + session factory ──────────────────────────────────────
 

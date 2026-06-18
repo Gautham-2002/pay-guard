@@ -15,7 +15,7 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "ratelimit==2.2.1",
     "playwright==1.44.0",
-    "duckduckgo-search==6.1.7",
+    "duckduckgo-search==8.1.1",
     "praw==7.7.1",
     "beautifulsoup4>=4.12.3",
     "lxml>=5.2.2",

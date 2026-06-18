@@ -25,10 +25,13 @@ Implemented in: Phase 6
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from api.rate_limiter import RateLimitMiddleware
 from api.routes import check, history, report
@@ -116,14 +119,20 @@ app = FastAPI(
 app.add_middleware(RateLimitMiddleware)
 
 # 2. CORS (outermost — adds headers to every response including 429s)
+_cors_origins = [
+    "http://localhost:5173",    # Vite dev server (default)
+    "http://localhost:3000",    # Create React App / Next.js
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
+_cors_origins.extend(
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",    # Vite dev server (default)
-        "http://localhost:3000",    # Create React App / Next.js
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -149,3 +158,25 @@ async def health_check() -> dict:
         "service": "payguard-ai",
         "version": "1.0.0",
     }
+
+
+# ─── Frontend (production) ────────────────────────────────────────────────────
+# When frontend/dist exists (Docker / Render all-in-one), serve the React SPA.
+# Registered last so /api, /health, and /docs keep precedence.
+
+
+def _mount_frontend(application: FastAPI) -> None:
+    static_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    if not static_dir.is_dir():
+        logger.info("Frontend dist not found at %s — API-only mode", static_dir)
+        return
+
+    application.mount(
+        "/",
+        StaticFiles(directory=static_dir, html=True),
+        name="frontend",
+    )
+    logger.info("Serving frontend from %s", static_dir)
+
+
+_mount_frontend(app)

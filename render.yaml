@@ -1,0 +1,54 @@
+# PayGuard AI — all-in-one Render deployment
+# https://render.com/docs/blueprint-spec
+#
+# Setup:
+#   1. Push this repo to GitHub
+#   2. Render Dashboard → New → Blueprint → connect repo
+#   3. Upload agent_config.yaml as a secret file mounted at /etc/secrets/agent_config.yaml
+#   4. Set the env vars marked sync: false in the Render dashboard
+#
+# Free tier notes:
+#   - Service spins down after 15 min idle (cold start ~30-60s)
+#   - 512 MB RAM — Agent 3 (Playwright) is tight; monitor logs for OOM
+
+services:
+  - type: web
+    name: pay-guard
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: DB_PATH
+        value: /app/data/payguard.db
+      - key: PAYGUARD_QR_ARTIFACT_DIR
+        value: /app/data/artifacts/qr
+      - key: AGENT_CONFIG_PATH
+        value: /etc/secrets/agent_config.yaml
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      # ── Required secrets (set in Render dashboard) ───────────────────────
+      - key: BAND_API_KEY
+        sync: false
+      - key: FEATHERLESS_API_KEY
+        sync: false
+      - key: AIML_API_KEY
+        sync: false
+      - key: VIRUSTOTAL_API_KEY
+        sync: false
+      - key: WHOISJSON_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      # ── Optional overrides ─────────────────────────────────────────────────
+      - key: FEATHERLESS_BASE_URL
+        value: https://api.featherless.ai/v1
+      - key: AIML_BASE_URL
+        value: https://api.aimlapi.com/v1
+      - key: ENABLE_SAFE_BROWSING
+        value: "false"
+      - key: ENABLE_REDDIT
+        value: "false"
+      - key: USE_DEMO_CACHE
+        value: "false"
